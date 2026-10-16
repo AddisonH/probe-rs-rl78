@@ -200,7 +200,7 @@ impl Session {
         let mut ocd = UartOcd::new(s.0, [0; 10]);
         let entry = ocd.attach().unwrap();
         let mut state = Rl78CoreState::new();
-        state.attached(entry);
+        state.attached(super::flash::Attached::UnderReset(entry));
         Self { ocd, state }
     }
 

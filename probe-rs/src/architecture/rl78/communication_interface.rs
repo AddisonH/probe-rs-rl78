@@ -95,6 +95,13 @@ pub trait Rl78OcdInterface: Send + fmt::Debug {
     /// returned sync holds its B, C, H and L at entry.
     fn attach(&mut self) -> Result<Sync, Rl78Error>;
 
+    /// Halt a program that runs with the monitor armed, as the debug stub leaves it after a
+    /// normal boot (§31), and unlock: an attach that leaves the program where it was. `None`
+    /// when nothing answers: no stub, no program running, or a part already in the monitor.
+    fn attach_running(&mut self) -> Result<Option<Sync>, Rl78Error> {
+        Ok(None)
+    }
+
     /// Unlock a session the monitor has locked again. Every monitor entry locks: after a halt,
     /// a step, or the target stopping by itself.
     fn unlock(&mut self) -> Result<(), Rl78Error>;
@@ -176,6 +183,8 @@ const T_SETTLE: Duration = Duration::from_millis(35);
 
 /// How long one reply may take. Replies are at most 257 bytes at 115200 baud, about 25 ms.
 const REPLY_TIMEOUT: Duration = Duration::from_millis(1000);
+/// How long a running program with the monitor armed takes to answer a halt, with room for USB.
+const T_ATTACH_RUNNING: Duration = Duration::from_millis(100);
 
 /// F0085H bit 0 arms a single step (notes section 23.1). It is sticky across an execute, so a
 /// free run must clear it explicitly.
@@ -316,6 +325,27 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
             })?;
         self.unlock()?;
         Ok(sync.expect("the codec decodes a sync for pb_enter_ocd"))
+    }
+
+    fn attach_running(&mut self) -> Result<Option<Sync>, Rl78Error> {
+        // An armed monitor answers a 00H within a few milliseconds (§31.2). Speak to it as to a
+        // target the monitor has let run; if nothing answers, the attach under reset starts the
+        // codec afresh.
+        self.link.flush_input()?;
+        self.state = protocol::State {
+            phase: protocol::Phase::Ocd,
+            ..protocol::State::default()
+        };
+        match self.xfer_within(Op::Halt, &Args::default(), None, T_ATTACH_RUNNING) {
+            Ok((_, sync)) => {
+                self.unlock()?;
+                Ok(Some(sync.expect("the codec decodes a sync for halt")))
+            }
+            Err(e) => {
+                tracing::debug!("rl78: no program running with the monitor armed: {e}");
+                Ok(None)
+            }
+        }
     }
 
     fn security_id(&self) -> [u8; SECURITY_ID_LEN] {

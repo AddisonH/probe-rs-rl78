@@ -192,6 +192,9 @@ pub struct Rl78CoreState {
     at_boot_rom: bool,
     /// Breakpoints asked for and traps in memory. Traps in flash outlive a reset.
     breakpoints: Box<breakpoints::Breakpoints>,
+    /// The session's attach halted a running program, and nothing has run, stepped, reset or
+    /// reflashed it since: the end of the session lets it run on, as it found it.
+    resume_at_detach: bool,
 }
 
 impl Rl78CoreState {
@@ -201,11 +204,16 @@ impl Rl78CoreState {
     }
 
     /// The probe has just attached: the target is halted in the monitor.
-    pub(crate) fn attached(&mut self, sync: Sync) {
+    pub(crate) fn attached(&mut self, attached: flash::Attached) {
+        let (sync, at_boot_rom) = match attached {
+            flash::Attached::Running(sync) => (sync, false),
+            flash::Attached::UnderReset(sync) => (sync, true),
+        };
         *self = Self {
             sync,
             halt_reason: Some(HaltReason::Request),
-            at_boot_rom: true,
+            at_boot_rom,
+            resume_at_detach: !at_boot_rom,
             breakpoints: std::mem::take(&mut self.breakpoints),
             ..Self::default()
         };
@@ -782,6 +790,7 @@ impl CoreInterface for Rl78<'_> {
         if self.state.running {
             return Ok(());
         }
+        self.state.resume_at_detach = false;
         if self.in_boot_rom() {
             // Resuming here would only run the boot ROM's idle loop, with the watchdog running
             // whatever the option byte says (§47.1) and the part about 5x slow (§48.3). Boot the
@@ -825,12 +834,13 @@ impl CoreInterface for Rl78<'_> {
         // RESET with TOOL0 low, then the CAH mode byte: the part comes up in the monitor. RAM is
         // not ours to restore after a reset, so the saved copy is dropped.
         let sync = self.interface.attach()?;
-        self.state.attached(sync);
+        self.state.attached(flash::Attached::UnderReset(sync));
         Ok(CoreInformation { pc: self.pc()? })
     }
 
     fn step(&mut self) -> Result<CoreInformation, Error> {
         self.require_halted("step")?;
+        self.state.resume_at_detach = false;
         if self.in_boot_rom() {
             self.boot_to_entry()?;
         } else if self.state.breakpoints.is_idle() {
@@ -963,7 +973,14 @@ impl CoreInterface for Rl78<'_> {
 
     fn debug_core_stop(&mut self) -> Result<(), Error> {
         // Leave no trap behind in the user's flash.
-        self.lift_all_breakpoints()
+        self.lift_all_breakpoints()?;
+        // A program the attach halted, for a memory read say, runs on as it was found. On Arm a
+        // read would not have stopped it at all.
+        if self.state.resume_at_detach && !self.state.running {
+            tracing::debug!("rl78: resuming the program the attach halted");
+            self.run()?;
+        }
+        Ok(())
     }
 }
 

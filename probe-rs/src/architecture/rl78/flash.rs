@@ -432,9 +432,12 @@ pub(crate) fn attach_or_recover(
     interface: &mut dyn Rl78OcdInterface,
     target: &Target,
     permissions: &Permissions,
-) -> Result<Sync, Error> {
+) -> Result<Attached, Error> {
+    if let Some(sync) = interface.attach_running()? {
+        return Ok(Attached::Running(sync));
+    }
     let error = match interface.attach() {
-        Ok(sync) => return Ok(sync),
+        Ok(sync) => return Ok(Attached::UnderReset(sync)),
         Err(e @ (Rl78Error::NoMonitor | Rl78Error::SecurityIdRejected)) => e,
         Err(e) => return Err(e.into()),
     };
@@ -450,7 +453,16 @@ pub(crate) fn attach_or_recover(
     let flash = code_flash(target)?;
     let image = monitor_image(flash.len(), interface.security_id());
     interface.erase_all_and_program(&image)?;
-    Ok(interface.attach()?)
+    Ok(Attached::UnderReset(interface.attach()?))
+}
+
+/// How a session found the part.
+#[derive(Debug)]
+pub(crate) enum Attached {
+    /// A program running with the monitor armed, halted where it was.
+    Running(Sync),
+    /// Reset into the monitor: the boot ROM's idle loop, the program not started (§27.5).
+    UnderReset(Sync),
 }
 
 impl DebugFlashSequence for Rl78Flash {
@@ -459,6 +471,9 @@ impl DebugFlashSequence for Rl78Flash {
         if !core.core_halted()? {
             core.halt(Duration::from_millis(100))?;
         }
+        // The halted program is about to be replaced: resuming it at the end of the session
+        // would run new code from an old PC.
+        core.state.resume_at_detach = false;
         Ok(())
     }
 

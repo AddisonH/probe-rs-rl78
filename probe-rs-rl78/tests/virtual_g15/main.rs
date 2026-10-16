@@ -538,6 +538,47 @@ fn counter_running(g15: &VirtualG15) -> u16 {
     u16::from_le_bytes([m.peek(COUNTER as u32), m.peek(COUNTER as u32 + 1)])
 }
 
+/// A session finds a program running with the stub's monitor armed and halts it where it is,
+/// with no reset (§31): `probe-rs read` on a running board. Its end lets the program run on, as
+/// it found it. A session that reflashes leaves the part halted instead: the old PC means
+/// nothing in the new program.
+#[test]
+fn attach_to_a_running_program_and_leave_it_running() {
+    let g15 = VirtualG15::new();
+    {
+        let mut session = session(&g15);
+        flash(&mut session, &image(&FEED_AND_COUNT), false);
+        session.core(0).unwrap().reset().unwrap();
+    }
+    g15.run_for_ms(1);
+
+    {
+        let mut session = session(&g15);
+        let mut core = session.core(0).unwrap();
+        let pc = reg(&mut core, PC_ID);
+        assert!(
+            (0xDC..0xE4).contains(&pc),
+            "halted in the program at {pc:05X}H"
+        );
+        assert!(counter(&mut core) > 0, "and it had been running");
+    }
+    let n = counter_running(&g15);
+    g15.run_for_ms(1);
+    assert!(
+        counter_running(&g15) > n + 100,
+        "running again after the session"
+    );
+    assert_eq!(g15.lock().resets, 0);
+
+    {
+        let mut session = session(&g15);
+        flash(&mut session, &image(&FEED_AND_COUNT), false);
+    }
+    let n = counter_running(&g15);
+    g15.run_for_ms(1);
+    assert_eq!(counter_running(&g15), n, "left halted after a reflash");
+}
+
 /// e2 studio's monitor image (§4, §31): the reset vector on the debug stub, which branches to
 /// `0FFFFH`, the option bytes it writes, and the session's security ID.
 fn assert_monitor_image(g15: &VirtualG15, id: [u8; 10]) {

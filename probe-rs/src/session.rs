@@ -573,12 +573,12 @@ impl Session {
             }));
         }
         probe.attach_to_unspecified()?;
-        let sync = crate::architecture::rl78::attach_or_recover(
+        let attached = crate::architecture::rl78::attach_or_recover(
             probe.try_get_rl78_interface()?,
             &target,
             permissions,
         )?;
-        cores[0].rl78_state_mut().attached(sync);
+        cores[0].rl78_state_mut().attached(attached);
 
         Ok(Session {
             target,
