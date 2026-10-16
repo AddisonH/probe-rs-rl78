@@ -1,4 +1,4 @@
-use super::{DebugError, VerifiedBreakpoint, debug_info::DebugInfo};
+use super::{DebugError, DebugRegisters, VerifiedBreakpoint, debug_info::DebugInfo};
 use probe_rs::{
     CoreInterface, CoreStatus, Error, HaltReason,
     architecture::{
@@ -53,7 +53,7 @@ impl SteppingMode {
             }
         };
         let origin_program_counter = program_counter;
-        let mut return_address = core.read_core_reg(core.return_address().id())?.try_into()?;
+        let mut return_address = current_return_address(core, debug_info, program_counter)?;
 
         // Sometimes the target program_counter is at a location where the debug_info program row data does not contain valid statements for halt points.
         // When DebugError::NoValidHaltLocation happens, we will step to the next instruction and try again(until we can reasonably expect to have passed out of an epilogue), before giving up.
@@ -104,7 +104,7 @@ impl SteppingMode {
                             );
                             program_counter = core.step()?.pc;
                             return_address =
-                                core.read_core_reg(core.return_address().id())?.try_into()?;
+                                current_return_address(core, debug_info, program_counter)?;
                             continue;
                         }
                         other_error => {
@@ -333,6 +333,27 @@ impl SteppingMode {
                 message: "Could not determine valid halt locations for this request. Please consider using instruction level stepping.".to_string()
         })
     }
+}
+
+/// The return address of the function halted at `program_counter`: in the link register, or,
+/// for a core without one, where the unwind information says the function saved it.
+fn current_return_address(
+    core: &mut impl CoreInterface,
+    debug_info: Option<&DebugInfo>,
+    program_counter: u64,
+) -> Result<u64, DebugError> {
+    if core.return_address().id() == core.program_counter().id()
+        && let Some(debug_info) = debug_info
+    {
+        let registers = DebugRegisters::from_core(core);
+        let instruction_set = core.instruction_set()?;
+        if let Ok(Some(saved)) =
+            debug_info.saved_return_address(core, &registers, instruction_set, program_counter)
+        {
+            return Ok(saved);
+        }
+    }
+    Ok(core.read_core_reg(core.return_address().id())?.try_into()?)
 }
 
 /// Run the target to the desired address. If available, we will use a breakpoint, otherwise we will use single step.

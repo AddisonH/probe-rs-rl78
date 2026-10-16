@@ -97,6 +97,19 @@ impl DebugInfo {
 
         let mut unit_infos = Vec::new();
 
+        // RL78 data pointers are 16 bits and address the top 64 KB, F0000H-FFFFFH.
+        let near_pointer_base = match &object {
+            object::File::Elf32(elf) => {
+                use object::read::elf::FileHeader;
+                if elf.elf_header().e_machine(elf.endian()) == object::elf::EM_RL78 {
+                    0xF_0000
+                } else {
+                    0
+                }
+            }
+            _ => 0,
+        };
+
         let mut iter = dwarf_cow.units();
 
         while let Ok(Some(header)) = iter.next() {
@@ -109,7 +122,9 @@ impl DebugInfo {
                 // The frame section address size is only used for CIE versions before 4.
                 frame_section.set_address_size(unit.encoding().address_size);
 
-                unit_infos.push(UnitInfo::new(unit, &dwarf_cow));
+                let mut unit_info = UnitInfo::new(unit, &dwarf_cow);
+                unit_info.near_pointer_base = near_pointer_base;
+                unit_infos.push(unit_info);
             };
         }
 
@@ -1362,6 +1377,52 @@ pub fn get_unwind_info<'a>(
     Ok((unwind_info, return_address_register))
 }
 
+impl DebugInfo {
+    /// Where the function halted at `program_counter` saved its return address, according to
+    /// its unwind information, and what is there. `None` if the unwind information does not put
+    /// it on the stack.
+    ///
+    /// This is the return address of a core with no link register (RL78), whose CIE names the
+    /// program counter as the return column. With a link register, the return address is in it
+    /// until the function saves it.
+    pub(crate) fn saved_return_address(
+        &self,
+        memory: &mut dyn MemoryInterface,
+        registers: &DebugRegisters,
+        instruction_set: InstructionSet,
+        program_counter: u64,
+    ) -> Result<Option<u64>, DebugError> {
+        let mut unwind_context = Box::new(gimli::UnwindContext::new());
+        let (unwind_info, return_column) =
+            get_unwind_info(&mut unwind_context, &self.frame_section, program_counter)?;
+        let gimli::CfaRule::RegisterAndOffset { register, offset } = unwind_info.cfa() else {
+            return Ok(None);
+        };
+        let Some(RegisterRule::Offset(slot)) = unwind_info.register(return_column) else {
+            return Ok(None);
+        };
+        let Some(base) = registers
+            .get_register_by_dwarf_id(register.0)
+            .and_then(|register| register.value)
+        else {
+            return Ok(None);
+        };
+        let base: u64 = base.try_into()?;
+        let size = registers.get_address_size_bytes().min(8);
+        let mut bytes = [0; 8];
+        memory.read(
+            base.wrapping_add_signed(*offset).wrapping_add_signed(slot),
+            &mut bytes[..size],
+        )?;
+        let address = u64::from_le_bytes(bytes);
+        Ok(Some(match instruction_set {
+            // `CALL` leaves the top byte of the slot as it was; an interrupt puts PSW there.
+            InstructionSet::Rl78 => address & 0xF_FFFF,
+            _ => address,
+        }))
+    }
+}
+
 /// Determines the CFA (canonical frame address) for the current [`gimli::UnwindTableRow`], using the current register values.
 fn determine_cfa<R: gimli::ReaderOffset>(
     unwind_registers: &DebugRegisters,
@@ -2371,6 +2432,7 @@ mod test {
     #[test_case("async_esp32c6"; "Unwind an async embassy task on an ESP32-C6")]
     #[test_case("R5F12068_fib"; "RL78 recursion on an R5F12068")]
     #[test_case("R5F12068_interrupt"; "RL78 interrupt handler on an R5F12068")]
+    #[test_case("R5F12068_pointer"; "RL78 near pointer argument on an R5F12068")]
     fn full_unwind(test_name: &str) {
         let debug_info =
             load_test_elf_as_debug_info(format!("debug-unwind-tests/{test_name}.elf").as_str());
@@ -2559,6 +2621,29 @@ mod test {
         // Using YAML output because it is easier to read than the default snapshot output,
         // and also because they provide better diffs.
         insta::assert_yaml_snapshot!(snapshot_name, static_variables);
+    }
+
+    /// Step out needs the return address of the innermost frame. RL78 has no link register:
+    /// it is on the stack, where the unwind information says.
+    #[test_case("R5F12068_pointer", 0x8C3; "after the CALL of record at 008C0H")]
+    #[test_case("R5F12068_interrupt", 0x903; "the interrupted instruction, PSW 97H above it")]
+    fn saved_return_address_rl78(test_name: &str, expected: u64) {
+        let debug_info =
+            load_test_elf_as_debug_info(format!("debug-unwind-tests/{test_name}.elf").as_str());
+        let mut adapter =
+            CoreDump::load(&coredump_path(format!("debug-unwind-tests/{test_name}"))).unwrap();
+        let registers = DebugRegisters::from_coredump(&adapter);
+        let pc = registers.get_program_counter().unwrap().value.unwrap();
+        let instruction_set = adapter.instruction_set();
+        let return_address = debug_info
+            .saved_return_address(
+                &mut adapter,
+                &registers,
+                instruction_set,
+                pc.try_into().unwrap(),
+            )
+            .unwrap();
+        assert_eq!(return_address, Some(expected));
     }
 
     fn coredump_path(base: String) -> PathBuf {

@@ -47,6 +47,9 @@ pub struct UnitInfo {
     function_dies: Vec<(Range<u64>, UnitOffset)>,
     // Return PC => DW_TAG_call_site_parameter (DW_AT_location bytes, DW_AT_call_value)
     call_sites: HashMap<u64, Vec<CallSiteParameter>>,
+    /// Where a pointer narrower than an address points. An RL78 near data pointer is 16 bits
+    /// and addresses `F0000H` plus its value [arch:p29].
+    pub(crate) near_pointer_base: u64,
 }
 
 mod walk;
@@ -72,6 +75,7 @@ impl UnitInfo {
             parents: HashMap::new(),
             function_dies: Vec::new(),
             call_sites: HashMap::new(),
+            near_pointer_base: 0,
         };
 
         this.process_unit(dwarf);
@@ -1428,7 +1432,13 @@ impl UnitInfo {
         memory: &mut dyn MemoryInterface,
     ) -> Result<u64, DebugError> {
         let mut buffer = [0u8; 8];
-        let address_size = (self.unit.encoding().address_size as usize).min(8);
+        let address_size = self.unit.encoding().address_size as usize;
+        // A pointer can be narrower than an address: RL78's near pointers are two bytes in an
+        // ELF32. (A wider one is a fat pointer, the address first.)
+        let pointer_size = pointer
+            .byte_size
+            .map_or(address_size, |size| (size as usize).min(address_size))
+            .min(8);
 
         match &pointer.memory_location {
             VariableLocation::Address(_)
@@ -1436,8 +1446,13 @@ impl UnitInfo {
             | VariableLocation::Composite(_) => {
                 pointer
                     .memory_location
-                    .read(&mut buffer[..address_size], memory)?;
-                Ok(u64::from_le_bytes(buffer))
+                    .read(&mut buffer[..pointer_size], memory)?;
+                let value = u64::from_le_bytes(buffer);
+                Ok(if pointer_size < address_size && value != 0 {
+                    self.near_pointer_base | value
+                } else {
+                    value
+                })
             }
             VariableLocation::Value => match &pointer.value {
                 VariableValue::Valid(value) => {
