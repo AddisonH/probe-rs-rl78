@@ -232,13 +232,23 @@ impl Rl78Uart for Ft232r {
     }
 }
 
-/// The COM-port debugger.
+/// The COM-port debugger: the OCD protocol over a byte pipe to TOOL0. The link is the FT232R
+/// for a real board; tests put a simulated target there instead.
 #[derive(Debug)]
-pub struct ComProbe {
-    ocd: UartOcd<Ft232r>,
+pub struct ComProbe<L = Ft232r> {
+    ocd: UartOcd<L>,
 }
 
-impl DebugProbe for ComProbe {
+impl<L: Rl78Uart> ComProbe<L> {
+    /// A probe over `link`, unlocking with `security_id`.
+    pub fn new(link: L, security_id: [u8; SECURITY_ID_LEN]) -> Self {
+        Self {
+            ocd: UartOcd::new(link, security_id),
+        }
+    }
+}
+
+impl<L: Rl78Uart + 'static> DebugProbe for ComProbe<L> {
     fn get_name(&self) -> &str {
         "RL78 COM port (FT232R)"
     }
@@ -350,9 +360,7 @@ impl ProbeFactory for ComProbeFactory {
             .find(|d| selector.matches(d))
             .ok_or(ProbeCreationError::NotFound)?;
         let link = Ft232r::open(&device)?;
-        Ok(Box::new(ComProbe {
-            ocd: UartOcd::new(link, security_id()?),
-        }))
+        Ok(Box::new(ComProbe::new(link, security_id()?)))
     }
 
     fn list_probes(&self) -> Vec<ProbeListItem> {
