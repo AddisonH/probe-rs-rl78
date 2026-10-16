@@ -184,7 +184,16 @@ struct Session {
 }
 
 impl Session {
+    /// A target halted in its program, as after an attach, a run and a halt: what most of these
+    /// scripts start from. The run and the halt are not scripted.
     fn attached(sync: [u8; 4], script: impl FnOnce(&mut Script)) -> Self {
+        let mut s = Self::fresh(sync, script);
+        s.state.at_boot_rom = false;
+        s
+    }
+
+    /// A target just attached under reset, halted in the boot ROM before its program has run.
+    fn fresh(sync: [u8; 4], script: impl FnOnce(&mut Script)) -> Self {
         let mut s = Script::default();
         s.attach(sync);
         script(&mut s);
@@ -383,6 +392,19 @@ fn writing_back_an_unchanged_sp_is_allowed() {
     core.write_core_reg(RegisterId(SP_ID), 0xF_FE20u32.into())
         .unwrap();
     assert!(core.run().is_err());
+}
+
+#[test]
+fn continue_from_a_fresh_attach_boots_the_program() {
+    // Not 5CH: that would resume the boot ROM's idle loop. A normal reset instead.
+    let mut s = Session::fresh([0; 4], |s| {
+        s.line(Line::Reset(true))
+            .line(Line::Reset(false))
+            .line(Line::Flush);
+    });
+    s.core().run().unwrap();
+    assert!(!s.core().core_halted().unwrap());
+    s.assert_done();
 }
 
 #[test]

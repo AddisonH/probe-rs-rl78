@@ -297,15 +297,15 @@ fn model_break_before_reset_leaves_bytes_behind() {
     );
 }
 
-/// A small image as a toolchain links it: reset vector, option bytes, the security ID left
-/// erased, code at `000D8H`, and constants in another block.
-fn image() -> Vec<(u64, Vec<u8>)> {
-    let mut code = vec![0xCB, 0xF8, 0x20, 0xFE]; // movw sp, #0xfe20
-    code.extend(FEED_AND_COUNT);
+/// A small image as a toolchain links it: reset vector, option bytes, the security ID and the
+/// debug stub's place left erased, `code` at `000D8H`, and constants in another block.
+fn image(code: &[u8]) -> Vec<(u64, Vec<u8>)> {
+    let mut text = vec![0xCB, 0xF8, 0x20, 0xFE]; // movw sp, #0xfe20
+    text.extend(code);
     vec![
         (0x0000, vec![0xD8, 0x00]),
         (0x00C0, vec![0xEE, 0xFF, 0xF9, 0x85]),
-        (0x00D8, code),
+        (0x00D8, text),
         (0x0900, (0..=255).collect()),
     ]
 }
@@ -321,9 +321,15 @@ fn flash(session: &mut Session, image: &[(u64, Vec<u8>)], chip_erase: bool) {
     loader.commit(session, options).unwrap();
 }
 
+fn peek(g15: &VirtualG15, address: u32, len: u32) -> Vec<u8> {
+    let m = g15.lock();
+    (address..address + len).map(|a| m.peek(a)).collect()
+}
+
 /// Flash by self-programming (§7.1): the blocks the image touches are erased and written, the
-/// rest are left alone, and an image that leaves the security ID erased gets the session's
-/// (§48.1), so the next attach still unlocks.
+/// rest are left alone. The image leaves the security ID erased, so it gets the session's
+/// (§48.1) and the next attach still unlocks; and it leaves `000CEH`-`000D7H` free, so it gets
+/// the debug stub (§31.3): after a normal reset the program runs and a `00H` halts it.
 #[test]
 fn flash_an_image() {
     let id = [0x5A, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xA5];
@@ -334,35 +340,75 @@ fn flash_an_image() {
         m.poke(0x1C00, b"untouched");
     }
     let mut session = session_with_id(&g15, id);
-    flash(&mut session, &image(), false);
-    {
-        let mut m = g15.lock();
-        assert_eq!(m.flash().blocks_erased, 2, "blocks 0 and 2");
-        let peek =
-            |m: &model::Model, a: u32, n: u32| (a..a + n).map(|a| m.peek(a)).collect::<Vec<_>>();
-        for (address, data) in image() {
-            assert_eq!(peek(&m, address as u32, data.len() as u32), data);
-        }
-        assert_eq!(peek(&m, 0x00C4, 10), id);
-        assert_eq!(peek(&m, 0x1C00, 9), b"untouched");
-        assert_eq!(peek(&m, 0x0400, 4), [0xFF; 4], "erased, not written");
+    let image = image(&FEED_AND_COUNT);
+    flash(&mut session, &image, false);
+
+    assert_eq!(g15.lock().flash().blocks_erased, 2, "blocks 0 and 2");
+    for (address, data) in &image[2..] {
+        assert_eq!(peek(&g15, *address as u32, data.len() as u32), *data);
     }
+    assert_eq!(
+        peek(&g15, 0x0000, 2),
+        [0xCE, 0x00],
+        "the reset vector, to the stub"
+    );
+    assert_eq!(
+        peek(&g15, 0x00C0, 4),
+        [0xEE, 0xFF, 0xF9, 0x8F],
+        "debug-in-use bits"
+    );
+    assert_eq!(peek(&g15, 0x00C4, 10), id);
+    assert_eq!(
+        peek(&g15, 0x00D5, 3),
+        [0xED, 0xD8, 0x00],
+        "the stub's BR !000D8H"
+    );
+    assert_eq!(peek(&g15, 0x1C00, 9), b"untouched");
+    assert_eq!(peek(&g15, 0x0400, 4), [0xFF; 4], "erased, not written");
 
     let mut core = session.core(0).unwrap();
     core.reset_and_halt(Duration::from_millis(100)).unwrap();
     core.reset().unwrap();
     g15.run_for_ms(5);
+    let pc = core.halt(Duration::from_millis(100)).unwrap().pc;
     assert!(
-        g15.lock().peek16(COUNTER as u32) > 100,
-        "the flashed program runs"
+        (0xDC..0xE4).contains(&pc),
+        "halted in the program at {pc:05X}H"
     );
+    assert!(counter(&mut core) > 100, "the flashed program runs");
+}
+
+/// Continuing straight after an attach boots the program (a normal reset), rather than resuming
+/// the boot ROM's idle loop, where the watchdog runs whatever the option byte says (§47.1).
+#[test]
+fn continue_after_attach_boots_the_program() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    flash(&mut session, &image(&SPIN), false);
+    let mut core = session.core(0).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    assert_eq!(reg(&mut core, PC_ID), IDLE_LOOP);
+    core.run().unwrap();
+    g15.run_for_ms(200);
+    assert_eq!(
+        g15.lock().resets,
+        0,
+        "the option byte's watchdog (off) applies"
+    );
+    let pc = core.halt(Duration::from_millis(100)).unwrap().pc;
+    assert_eq!(pc, 0xDC, "in the program's loop");
+
+    // Once it has run, continue is an ordinary resume.
+    core.run().unwrap();
+    g15.run_for_ms(1);
+    assert_eq!(core.halt(Duration::from_millis(100)).unwrap().pc, 0xDC);
 }
 
 #[test]
 fn flash_with_a_chip_erase() {
     let g15 = VirtualG15::new();
     let mut session = session(&g15);
-    flash(&mut session, &image(), true);
+    flash(&mut session, &image(&FEED_AND_COUNT), true);
     let mut m = g15.lock();
     assert_eq!(m.flash().blocks_erased, 8);
     assert_eq!(m.peek(0x0900 + 0x7F), 0x7F);

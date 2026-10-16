@@ -35,6 +35,6 @@ impl DefaultRl78Sequence {
 
 impl Rl78DebugSequence for DefaultRl78Sequence {
     fn debug_flash_sequence(&self) -> Option<Arc<dyn DebugFlashSequence>> {
-        Some(Arc::new(Rl78Flash))
+        Some(Arc::new(Rl78Flash::from_env()))
     }
 }

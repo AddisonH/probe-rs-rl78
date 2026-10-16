@@ -142,6 +142,8 @@ pub struct Model {
     wdt_mark: u64,
     /// Internal resets so far, for tests.
     pub resets: u32,
+    /// Booted through the boot ROM's `CAH` route rather than from the reset vector.
+    debug_boot: bool,
 }
 
 /// The peripherals the debugger meets: the program's stores to `WDTE` (the register itself keeps
@@ -289,6 +291,7 @@ impl Model {
             wdt_period: WDT_PERIOD_ATTACHED,
             wdt_mark: 0,
             resets: 0,
+            debug_boot: false,
         }
     }
 
@@ -386,8 +389,12 @@ impl Model {
         v
     }
 
+    /// The monitor answers a byte on TOOL0. After a plain boot that also takes `000C3H` bits 3
+    /// and 1, which a toolchain ships clear: without them the stub's writes do not arm it (§31.5).
     fn armed(&self) -> bool {
-        self.peek(ENGINE_MODE) == 0xC5 && self.peek(OCD_CTRL) & 0x40 != 0
+        self.peek(ENGINE_MODE) == 0xC5
+            && self.peek(OCD_CTRL) & 0x40 != 0
+            && (self.debug_boot || self.peek(OCD_OPTION) & 0x0A == 0x0A)
     }
 
     fn send(&mut self, bytes: &[u8]) {
@@ -415,6 +422,7 @@ impl Model {
 
     fn boot(&mut self) {
         self.reset_registers();
+        self.debug_boot = false;
         for a in [ENGINE_MODE, STEP_ENABLE, ENGINE_SELECT, OCD_CTRL] {
             self.cpu.mem.b[a as usize] = 0;
         }
@@ -742,6 +750,7 @@ impl Model {
             return; // 0EFFE5H spins until the on-chip debug option byte enables debugging
         }
         self.reset_registers();
+        self.debug_boot = true;
         for i in 0..8 {
             self.set_r(i, 0);
         }

@@ -178,6 +178,9 @@ pub struct Rl78CoreState {
     flash_resident: bool,
     /// `FSSET` for the clock the program left running, read once per halt.
     fsset: Option<u8>,
+    /// Halted where an attach under reset leaves the part: the boot ROM's idle loop, before the
+    /// program has run at all.
+    at_boot_rom: bool,
 }
 
 impl Rl78CoreState {
@@ -191,6 +194,7 @@ impl Rl78CoreState {
         *self = Self {
             sync,
             halt_reason: Some(HaltReason::Request),
+            at_boot_rom: true,
             ..Self::default()
         };
     }
@@ -357,6 +361,7 @@ impl<'probe> Rl78<'probe> {
         self.state.ram_shadow = None;
         self.state.flash_resident = false;
         self.state.fsset = None;
+        self.state.at_boot_rom = false;
         self.state.halt_reason = Some(reason);
         self.interface.unlock()?;
         Ok(())
@@ -650,6 +655,20 @@ impl CoreInterface for Rl78<'_> {
     fn run(&mut self) -> Result<(), Error> {
         if self.state.running {
             return Ok(());
+        }
+        let pc_moved = self
+            .state
+            .context
+            .as_ref()
+            .is_some_and(|ctx| ctx.is_dirty(PC_ID));
+        if self.state.at_boot_rom && !pc_moved {
+            // Resuming here would only run the boot ROM's idle loop, with the watchdog running
+            // whatever the option byte says (§47.1) and the part about 5x slow (§48.3). Boot the
+            // program instead: a normal reset, after which the debug stub in flash arms the
+            // monitor again (§31).
+            tracing::info!("rl78: continuing from the attach: booting the program");
+            self.ram_return()?;
+            return self.reset();
         }
         let sync = self.store_context()?;
         self.interface.execute(sync, false)?;

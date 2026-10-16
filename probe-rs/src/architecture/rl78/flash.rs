@@ -276,13 +276,37 @@ impl Rl78<'_> {
 /// Code flash programming for the RL78/G15 class, as probe-rs's host-side flasher drives it:
 /// a 1 KB block is a sector, and pages are written 64 words to a call.
 ///
-/// An image built by a toolchain leaves the security ID (`000C4H`–`000CDH`) erased, which makes
-/// the part's ID ten `FFH` and locks out the next attach (§48.1). When a page leaves it erased,
-/// the session's ID is written there instead, as e2 studio does.
+/// Two things are added to an image on its way into flash, both in its first page and both only
+/// where the image leaves the bytes erased:
+///
+/// - **The session's security ID** at `000C4H`–`000CDH`. A toolchain leaves it erased, which
+///   makes the part's ID ten `FFH` and locks out the next attach (§48.1); e2 studio fills it the
+///   same way.
+/// - **The debug stub** at `000CEH`–`000D7H` (§31.3, §46.5), with the reset vector pointed at it
+///   and `000C3H` bits 3 and 1 set (§31.5). It arms the monitor at every boot and branches to the
+///   image's own entry, so the program runs after a normal reset with its own watchdog setting,
+///   and a `00H` on TOOL0 halts it. `PROBE_RS_RL78_DEBUG_STUB=0` leaves it out, for an image that
+///   ships: an armed monitor halts the part on any byte that reaches TOOL0.
 #[derive(Debug)]
-pub struct Rl78Flash;
+pub struct Rl78Flash {
+    debug_stub: bool,
+}
+
+/// `MOV !F0080H,#0C5H` / `MOV FFFAFH,#40H` / `BR !entry` (§31.3), without the entry.
+const DEBUG_STUB: [u8; 8] = [0xCF, 0x80, 0x00, 0xC5, 0xCE, 0xAF, 0x40, 0xED];
+const DEBUG_STUB_AT: usize = 0xCE;
+const DEBUG_STUB_LEN: usize = DEBUG_STUB.len() + 2;
+/// The first page must reach past the stub for any of this to apply.
+const HEAD: usize = DEBUG_STUB_AT + DEBUG_STUB_LEN;
 
 impl Rl78Flash {
+    /// The sequence, with the debug stub unless `PROBE_RS_RL78_DEBUG_STUB` is `0`.
+    pub fn from_env() -> Self {
+        Self {
+            debug_stub: std::env::var("PROBE_RS_RL78_DEBUG_STUB").as_deref() != Ok("0"),
+        }
+    }
+
     /// The code flash: the NVM region at 00000H.
     fn code_flash(session: &Session) -> Result<Range<u32>, Error> {
         session
@@ -298,47 +322,71 @@ impl Rl78Flash {
             .ok_or_else(|| Error::Other("the target has no code flash at 00000H".into()))
     }
 
-    /// `data` for `address` as it goes into flash: with the session's security ID if the page
-    /// covers the ID and leaves it erased.
-    fn with_security_id<'d>(
+    /// `data` for `address` as it goes into flash: the image's first page with the session's
+    /// security ID and the debug stub added where it leaves room for them. `report` logs what
+    /// was done (once, when programming; not again when verifying).
+    fn debug_image<'d>(
+        &self,
         address: u64,
         data: &'d [u8],
         session_id: [u8; SECURITY_ID_LEN],
         report: bool,
     ) -> Cow<'d, [u8]> {
-        let start = address as usize;
-        if report && (start..start + data.len()).contains(&OCD_OPTION) {
-            let ocd = data[OCD_OPTION - start];
-            if ocd & 0x80 == 0 {
+        if address != 0 || data.len() < HEAD {
+            return Cow::Borrowed(data);
+        }
+        let mut page = data.to_vec();
+        let erased = |r: Range<usize>| data[r].iter().all(|&b| b == 0xFF);
+
+        let id = &mut page[SECURITY_ID];
+        if erased(SECURITY_ID) {
+            id.copy_from_slice(&session_id);
+            if report {
+                tracing::info!(
+                    "rl78: the image leaves the security ID erased: writing the session's"
+                );
+            }
+        } else if report && *id != session_id {
+            tracing::warn!(
+                "rl78: the image sets the security ID to {id:02X?}, not the session's; set \
+                 PROBE_RS_RL78_SECURITY_ID to it to attach afterwards"
+            );
+        }
+
+        let ocd = data[OCD_OPTION];
+        let entry = u16::from_le_bytes([data[0], data[1]]);
+        if ocd & 0x80 == 0 {
+            if report {
                 tracing::warn!(
                     "rl78: the image's option byte 000C3H is {ocd:02X}H, which disables on-chip \
                      debugging (OCDENSET = 0): the debugger cannot attach to the part afterwards"
                 );
             }
-        }
-        if start > SECURITY_ID.start || start + data.len() < SECURITY_ID.end {
-            return Cow::Borrowed(data);
-        }
-        let at = SECURITY_ID.start - start..SECURITY_ID.end - start;
-        if data[at.clone()].iter().all(|&b| b == 0xFF) {
+        } else if !self.debug_stub || entry == DEBUG_STUB_AT as u16 {
+            // Left out on request, or already there.
+        } else if entry == 0xFFFF {
+            if report {
+                tracing::warn!("rl78: the image has no reset vector: no debug stub");
+            }
+        } else if !erased(DEBUG_STUB_AT..HEAD) {
+            if report {
+                tracing::warn!(
+                    "rl78: the image uses 000CEH-000D7H, where the debug stub goes: the program \
+                     cannot be halted after a reset. Leave those 10 bytes free in the link map."
+                );
+            }
+        } else {
+            page[DEBUG_STUB_AT..DEBUG_STUB_AT + DEBUG_STUB.len()].copy_from_slice(&DEBUG_STUB);
+            page[DEBUG_STUB_AT + DEBUG_STUB.len()..HEAD].copy_from_slice(&entry.to_le_bytes());
+            page[..2].copy_from_slice(&(DEBUG_STUB_AT as u16).to_le_bytes());
+            page[OCD_OPTION] |= 0x0A;
             if report {
                 tracing::info!(
-                    "rl78: the image leaves the security ID erased; writing the session's there"
+                    "rl78: debug stub at 000CEH, branching to the image's entry {entry:05X}H"
                 );
             }
-            let mut data = data.to_vec();
-            data[at].copy_from_slice(&session_id);
-            Cow::Owned(data)
-        } else {
-            if report && data[at.clone()] != session_id {
-                tracing::warn!(
-                    "rl78: the image sets the security ID to {:02X?}, not the session's; set \
-                     PROBE_RS_RL78_SECURITY_ID to it to attach afterwards",
-                    &data[at]
-                );
-            }
-            Cow::Borrowed(data)
         }
+        Cow::Owned(page)
     }
 }
 
@@ -365,13 +413,13 @@ impl DebugFlashSequence for Rl78Flash {
 
     fn program(&self, session: &mut Session, address: u64, data: &[u8]) -> Result<(), Error> {
         let mut core = session.get_rl78_core()?;
-        let data = Self::with_security_id(address, data, core.interface.security_id(), true);
+        let data = self.debug_image(address, data, core.interface.security_id(), true);
         core.flash_write(address as u32, &data)
     }
 
     fn verify(&self, session: &mut Session, address: u64, data: &[u8]) -> Result<bool, Error> {
         let mut core = session.get_rl78_core()?;
-        let expected = Self::with_security_id(address, data, core.interface.security_id(), false);
+        let expected = self.debug_image(address, data, core.interface.security_id(), false);
         let mut got = vec![0; data.len()];
         core.read(address, &mut got)?;
         Ok(got == *expected)
@@ -400,23 +448,53 @@ mod tests {
         assert_eq!(STUB_FLASH[132], 0xD7);
     }
 
-    #[test]
-    fn security_id_goes_into_an_erased_slot_only() {
-        let id = [0x11; SECURITY_ID_LEN];
+    /// A first page as a toolchain links it: reset vector to 000D8H, option bytes with
+    /// OCDENSET, the ID and the stub's place erased, code from 000D8H.
+    fn linked_page() -> Vec<u8> {
         let mut page = vec![0xFF; 0x100];
+        page[..2].copy_from_slice(&[0xD8, 0x00]);
+        page[0xC0..0xC4].copy_from_slice(&[0xEE, 0xFF, 0xF9, 0x85]);
+        page[0xD8..0xDC].copy_from_slice(&[0xCB, 0xF8, 0x20, 0xFE]);
+        page
+    }
+
+    const ID: [u8; SECURITY_ID_LEN] = [0x11; SECURITY_ID_LEN];
+
+    #[test]
+    fn first_page_gets_the_id_and_the_stub() {
+        let page = linked_page();
+        let out = Rl78Flash { debug_stub: true }.debug_image(0, &page, ID, false);
+        assert_eq!(out[..2], [0xCE, 0x00], "reset vector to the stub");
+        assert_eq!(out[0xC3], 0x8F, "debug-in-use bits 3 and 1");
+        assert_eq!(out[SECURITY_ID], ID);
         assert_eq!(
-            Rl78Flash::with_security_id(0, &page, id, false)[SECURITY_ID],
-            id
+            out[0xCE..0xD8],
+            [0xCF, 0x80, 0x00, 0xC5, 0xCE, 0xAF, 0x40, 0xED, 0xD8, 0x00]
         );
+        assert_eq!(out[0xD8..], page[0xD8..], "the image itself is untouched");
+    }
+
+    #[test]
+    fn what_the_image_sets_is_kept() {
+        let mut page = linked_page();
         page[0xC4] = 0x00;
+        page[0xCE] = 0x00;
+        let out = Rl78Flash { debug_stub: true }.debug_image(0, &page, ID, false);
         assert_eq!(
-            Rl78Flash::with_security_id(0, &page, id, false)[SECURITY_ID],
-            page[SECURITY_ID]
+            *out,
+            page[..],
+            "an ID of its own, and code where the stub goes"
         );
-        // A page that does not cover the whole ID is left alone.
-        let tail = vec![0xFF; 0x10];
+
+        let page = linked_page();
+        let out = Rl78Flash { debug_stub: false }.debug_image(0, &page, ID, false);
+        assert_eq!(out[..2], page[..2], "no stub when asked");
+        assert_eq!(out[SECURITY_ID], ID, "the ID all the same");
+
+        // Not the first page.
+        let tail = vec![0xFF; 0x100];
         assert_eq!(
-            *Rl78Flash::with_security_id(0xC8, &tail, id, false),
+            *Rl78Flash { debug_stub: true }.debug_image(0x100, &tail, ID, false),
             tail[..]
         );
     }
