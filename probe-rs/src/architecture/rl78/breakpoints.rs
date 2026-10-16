@@ -10,13 +10,15 @@
 //!   and the original byte is kept to put back.
 //! - **In RAM**, the byte is simply written.
 //!
-//! Continuing from a trap means executing the instruction under it: that one is lifted, the
-//! instruction stepped, and the batch applied again before the run. That costs two block
-//! rewrites per continue; Renesas's server runs the instruction on a host simulator instead.
+//! Continuing from a trap means executing the instruction under it without the trap. The trap
+//! stays in flash: a copy of the instruction runs from the dead stack below the program's SP,
+//! and the PC is moved back into the program (a displaced step; Renesas's server does the same
+//! with `ocd_1stepOnRam`). Only `HALT` and `STOP`, or a stack with no room under it, fall back to
+//! lifting the trap, stepping, and putting it back: two block rewrites.
 
 use std::collections::BTreeMap;
 
-use super::{PC_ID, RAM_BASE, RAM_SIZE, Rl78};
+use super::{PC_ID, RAM_BASE, RAM_SIZE, Rl78, SPH_ID, SPL_ID, protocol};
 use crate::{BreakpointCause, Error, HaltReason};
 
 /// Virtual breakpoint units. `FFH` traps have no hardware limit; this is what Renesas's engine
@@ -69,6 +71,64 @@ impl Breakpoints {
 
 fn in_ram(address: u32) -> bool {
     (RAM_BASE..RAM_BASE + RAM_SIZE as u32).contains(&address)
+}
+
+/// Bytes copied for a displaced step: the instruction (at most five, six with an `ES:` prefix)
+/// and the next, which a skip jumps over.
+const WINDOW: u32 = 16;
+/// How far below the program's SP the copy ends: clear of what one instruction pushes (four
+/// bytes), the monitor's frame on re-entry (six) and its stack under that (§49.3).
+const BELOW_SP: u32 = 32;
+
+/// What an instruction does to the PC, as far as running a copy of it elsewhere is concerned.
+/// Encodings from the RL78 LLVM backend's `llvm-mc`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Flow {
+    /// Falls through, or skips the next instruction: the PC lands in the copy.
+    Plain,
+    /// A branch relative to itself: the target moves with the copy.
+    Relative,
+    /// A branch to an absolute address, or a return.
+    Absolute,
+    /// A call: it pushes the address after itself, which is in the copy.
+    Call {
+        /// `CALL $!addr20`, relative to itself.
+        relative: bool,
+    },
+    /// The step would not end (`HALT`, `STOP`), or it is a trap itself.
+    Unsafe,
+}
+
+fn flow(code: &[u8]) -> Flow {
+    // ES: is a prefix to a data access, never to a branch.
+    let code = if code[0] == 0x11 { &code[1..] } else { code };
+    match code[0] {
+        0xFF => Flow::Unsafe,
+        // BR $addr20, BR $!addr20, BC, BZ, BNC, BNZ
+        0xEF | 0xEE | 0xDC..=0xDF => Flow::Relative,
+        // BT, BF, BTCLR: the 31H map's low nibbles 0-5 (the rest are shifts)
+        0x31 if code[1] & 0x0F <= 5 => Flow::Relative,
+        // BR !addr16, BR !!addr20, RET
+        0xED | 0xEC | 0xD7 => Flow::Absolute,
+        // CALL !addr16, CALL !!addr20
+        0xFD | 0xFC => Flow::Call { relative: false },
+        // CALL $!addr20
+        0xFE => Flow::Call { relative: true },
+        0x61 => match code[1] {
+            // BH, BNH
+            0xC3 | 0xD3 => Flow::Relative,
+            // BR AX, RETI, RETB
+            0xCB | 0xFC | 0xEC => Flow::Absolute,
+            // CALL AX/BC/DE/HL, BRK
+            0xCA | 0xDA | 0xEA | 0xFA | 0xCC => Flow::Call { relative: false },
+            // CALLT [addr5]
+            b if b & 0x8C == 0x84 => Flow::Call { relative: false },
+            // HALT, STOP
+            0xED | 0xFD => Flow::Unsafe,
+            _ => Flow::Plain,
+        },
+        _ => Flow::Plain,
+    }
 }
 
 impl Rl78<'_> {
@@ -203,8 +263,8 @@ impl Rl78<'_> {
         Ok(())
     }
 
-    /// Before the target runs or steps from a planted trap, the instruction under it has to run:
-    /// lift that trap alone and step it. Returns whether it stepped.
+    /// Before the target runs from a breakpoint, the instruction under it has to run. Returns
+    /// whether it stepped.
     pub(super) fn step_off_breakpoint(&mut self) -> Result<bool, Error> {
         if self.state.breakpoints.is_idle() {
             return Ok(false);
@@ -213,8 +273,77 @@ impl Rl78<'_> {
         if !self.state.breakpoints.wanted(None).any(|a| a == pc) {
             return Ok(false);
         }
+        self.step_over_traps()?;
+        Ok(true)
+    }
+
+    /// Step one instruction with every breakpoint in place, the one at the PC included when it
+    /// can be stepped displaced; otherwise that one is lifted for the step.
+    pub(super) fn step_over_traps(&mut self) -> Result<(), Error> {
+        let pc = self.pc()? as u32;
+        self.sync_breakpoints(None)?;
+        if self.state.breakpoints.is_planted(pc) && self.step_displaced(pc)? {
+            return Ok(());
+        }
         self.sync_breakpoints(Some(pc))?;
-        self.step_raw()?;
+        self.step_raw()
+    }
+
+    /// Step the instruction at `pc` by running a copy of it from the dead stack below the
+    /// program's SP, and move the PC back into the program. Returns false, having done nothing,
+    /// when it cannot: `HALT` or `STOP` at `pc`, or no room under the stack.
+    fn step_displaced(&mut self, pc: u32) -> Result<bool, Error> {
+        let mut code = [0; WINDOW as usize];
+        self.read_bytes(u64::from(pc), &mut code)?;
+        let flow = flow(&code);
+        let ctx = self.load_context()?;
+        let sp = u32::from(ctx.regs[usize::from(SPH_ID)] as u8) << 8
+            | u32::from(ctx.regs[usize::from(SPL_ID)] as u8);
+        let at = (protocol::ADDR16_BASE | sp).wrapping_sub(BELOW_SP + WINDOW);
+        if flow == Flow::Unsafe || at < RAM_BASE {
+            return Ok(false);
+        }
+        let copy = at..at + WINDOW;
+        let moved = |a: u32| a.wrapping_sub(at).wrapping_add(pc) & 0xF_FFFF;
+
+        ctx.set(PC_ID, at);
+        // The program's RAM back first, so that the instruction sees it; then the copy.
+        let sync = self.store_context()?;
+        self.interface.write_mem(at, &code)?;
+        let sync = self
+            .interface
+            .execute(sync, true)?
+            .expect("a step returns the re-entry sync");
+        self.entered(sync, HaltReason::Step)?;
+
+        let landed = self.pc()? as u32;
+        let (new_pc, pushed) = match flow {
+            Flow::Plain if copy.contains(&landed) => (moved(landed), false),
+            // Out of the copy without a branch: an interrupt, to an absolute vector, with the
+            // address in the copy pushed.
+            Flow::Plain => (landed, true),
+            Flow::Relative => (moved(landed), false),
+            Flow::Absolute => (landed, false),
+            Flow::Call { relative } => (if relative { moved(landed) } else { landed }, true),
+            Flow::Unsafe => unreachable!(),
+        };
+        if pushed {
+            // CALL, BRK and an interrupt push the return address at the new SP, low byte first.
+            let ctx = self.load_context()?;
+            let sp = protocol::ADDR16_BASE
+                | u32::from(ctx.regs[usize::from(SPH_ID)] as u8) << 8
+                | u32::from(ctx.regs[usize::from(SPL_ID)] as u8);
+            let mut ret = [0; 3];
+            self.interface.read_mem(sp, &mut ret)?;
+            let address = u32::from_le_bytes([ret[0], ret[1], ret[2] & 0x0F, 0]);
+            if copy.contains(&address) {
+                let fixed = moved(address).to_le_bytes();
+                let ret = [fixed[0], fixed[1], ret[2] & 0xF0 | fixed[2]];
+                self.interface.write_mem(sp, &ret)?;
+            }
+        }
+        tracing::debug!("rl78: stepped {pc:05X}H from a copy at {at:05X}H, to {new_pc:05X}H");
+        self.load_context()?.set(PC_ID, new_pc);
         Ok(true)
     }
 
@@ -250,6 +379,44 @@ impl Rl78<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flow_of_each_kind() {
+        // Encodings from `llvm-mc --triple=rl78 -show-encoding`.
+        let cases: &[(&[u8], Flow)] = &[
+            (&[0xF6], Flow::Plain),                                      // clrw ax
+            (&[0x11, 0x8F, 0x34, 0x12], Flow::Plain),                    // mov a, es:!0x1234
+            (&[0x31, 0x0B], Flow::Plain), // sar a, 0 (31H map, a shift)
+            (&[0x61, 0xC8], Flow::Plain), // skc
+            (&[0xEF, 0xFE], Flow::Relative), // br $.
+            (&[0xEE, 0, 0], Flow::Relative), // br $!addr20
+            (&[0xDD, 0], Flow::Relative), // bz
+            (&[0x61, 0xD3, 0], Flow::Relative), // bnh
+            (&[0x31, 0x94, 0x20, 0], Flow::Relative), // bf 0xfff20.1
+            (&[0x31, 0xA1, 0], Flow::Relative), // btclr [hl].2
+            (&[0xED, 0x34, 0x12], Flow::Absolute), // br !0x1234
+            (&[0xEC, 0x45, 0x23, 0x01], Flow::Absolute), // br !!0x12345
+            (&[0x61, 0xCB], Flow::Absolute), // br ax
+            (&[0xD7], Flow::Absolute),    // ret
+            (&[0x61, 0xFC], Flow::Absolute), // reti
+            (&[0x61, 0xEC], Flow::Absolute), // retb
+            (&[0xFD, 0x34, 0x12], Flow::Call { relative: false }), // call !0x1234
+            (&[0xFC, 0x45, 0x23, 0x01], Flow::Call { relative: false }), // call !!0x12345
+            (&[0xFE, 0, 0], Flow::Call { relative: true }), // call $!addr20
+            (&[0x61, 0xFA], Flow::Call { relative: false }), // call hl
+            (&[0x61, 0x84], Flow::Call { relative: false }), // callt [0x80]
+            (&[0x61, 0xF7], Flow::Call { relative: false }), // callt [0xbe]
+            (&[0x61, 0xCC], Flow::Call { relative: false }), // brk
+            (&[0x61, 0xED], Flow::Unsafe), // halt
+            (&[0x61, 0xFD], Flow::Unsafe), // stop
+            (&[0xFF], Flow::Unsafe),
+        ];
+        for (code, expected) in cases {
+            let mut window = [0; 4];
+            window[..code.len()].copy_from_slice(code);
+            assert_eq!(flow(&window), *expected, "{code:02X?}");
+        }
+    }
 
     #[test]
     fn erase_forgets_traps() {

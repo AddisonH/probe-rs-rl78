@@ -11,7 +11,7 @@ use std::{borrow::Cow, ops::Range, time::Duration};
 use probe_rs_target::MemoryRegion;
 
 use super::{
-    Rl78, STUB_BUF, STUB_BUF_SIZE,
+    Rl78, STUB_BUF_BELOW, STUB_BUF_SIZE,
     communication_interface::{Rl78Error, Rl78OcdInterface},
     protocol::{SECURITY_ID_LEN, Sync},
 };
@@ -30,7 +30,7 @@ use crate::{
 ///         mov   a, !P_FSSET  ->  mov !FSSET, a
 ///         mov   a, !P_FLPMC  ->  mov !FLPMC, a      ; FWEDIS = 0, FLSPM = 1
 ///         mov   a, !P_FLAPL  ->  mov !FLAPL, a      ; and FLAPH, FLSEDL, FLSEDH
-///         movw  hl, #0FD00H         ; the data, FFD00H
+///         movw  hl, #0FD00H         ; the data: the buffer, moved when staged
 ///         mov   a, !P_WORDS  ->  mov b, a
 /// next:   mov   a, [hl] .. [hl+3]  ->  FLWLL .. FLWHH
 ///         mov   a, !P_FSSQ   ->  mov !FSSQ, a       ; start; the CPU waits
@@ -108,10 +108,9 @@ const STUB_FLASH: [u8; 133] = [
     0xD7, //                         ret
 ];
 
-/// The routine's operands, `FFCF6H`–`FFCFFH`, directly below its data at [`STUB_BUF`]. From
-/// `FFCF9H` on they are laid out as Renesas's RAM kernel had them (§7.2).
-const PARAMS: u32 = STUB_BUF - PARAMS_LEN as u32;
-const PARAMS_LEN: usize = 10;
+/// The routine's operands, directly below its data. From `P_FSSET` on they are laid out as
+/// Renesas's RAM kernel had them (§7.2).
+const PARAMS_LEN: usize = STUB_BUF_BELOW;
 const P_STATUS: usize = 0;
 const P_WORDS: usize = 1;
 const P_FSSET: usize = 3;
@@ -119,6 +118,22 @@ const P_FLPMC: usize = 4;
 const P_FLAP: usize = 5;
 const P_FLSED: usize = 7;
 const P_FSSQ: usize = 9;
+
+/// [`STUB_FLASH`] as assembled has its data at `FFD00H`; staged, it is moved to the halt's buffer.
+const STUB_FLASH_BUF: u32 = 0xF_FD00;
+/// The `!addr16` and `#imm16` operands in [`STUB_FLASH`] that address the operands or the data.
+const STUB_FLASH_RELOCS: [usize; 10] = [11, 17, 23, 29, 35, 41, 47, 50, 73, 126];
+
+/// The flash routine for a buffer at `buf`.
+fn flash_stub(buf: u32) -> [u8; STUB_FLASH.len()] {
+    let mut code = STUB_FLASH;
+    let delta = buf.wrapping_sub(STUB_FLASH_BUF) as u16;
+    for at in STUB_FLASH_RELOCS {
+        let operand = u16::from_le_bytes([code[at], code[at + 1]]).wrapping_add(delta);
+        code[at..at + 2].copy_from_slice(&operand.to_le_bytes());
+    }
+    code
+}
 
 /// What the status byte holds until the routine overwrites it.
 const NOT_RUN: u8 = 0xFF;
@@ -200,9 +215,9 @@ impl Rl78<'_> {
         self.require_halted("flash programming")?;
         debug_assert!(data.len().is_multiple_of(WORD) && data.len() <= STUB_BUF_SIZE);
         let fsset = self.flash_fsset()?;
+        let params = self.stub_buf()? - PARAMS_LEN as u32;
         if !self.state.flash_resident {
-            self.check_scratch(PARAMS..STUB_BUF + STUB_BUF_SIZE as u32)?;
-            self.stage_stub(&STUB_FLASH)?;
+            self.stage_stub(&flash_stub(params + PARAMS_LEN as u32))?;
             self.state.flash_resident = true;
         }
 
@@ -215,12 +230,12 @@ impl Rl78<'_> {
         buf[P_FLSED..P_FLSED + 2].copy_from_slice(&(flsed as u16).to_le_bytes());
         buf[P_FSSQ] = fssq;
         buf[PARAMS_LEN..].copy_from_slice(data);
-        self.interface.write_mem(PARAMS, &buf)?;
+        self.interface.write_mem(params, &buf)?;
         self.interface.call_stub(timeout)?;
 
         let mut status = [0];
         self.interface
-            .read_mem(PARAMS + P_STATUS as u32, &mut status)?;
+            .read_mem(params + P_STATUS as u32, &mut status)?;
         match status[0] {
             0 => Ok(()),
             NOT_RUN => Err(Rl78Error::Other(format!(
@@ -480,20 +495,30 @@ mod tests {
 
     #[test]
     fn flash_stub_layout() {
-        // The operand addresses the routine reads are where flash_command writes them.
-        let addr = |off: usize| u16::from_le_bytes([STUB_FLASH[off], STUB_FLASH[off + 1]]);
-        let param = |p: usize| (PARAMS + p as u32) as u16;
-        assert_eq!(addr(11), param(P_FSSET));
-        assert_eq!(addr(17), param(P_FLPMC));
-        assert_eq!(addr(23), param(P_FLAP));
-        assert_eq!(addr(29), param(P_FLAP + 1));
-        assert_eq!(addr(35), param(P_FLSED));
-        assert_eq!(addr(41), param(P_FLSED + 1));
-        assert_eq!(addr(47), STUB_BUF as u16);
-        assert_eq!(addr(50), param(P_WORDS));
-        assert_eq!(addr(73), param(P_FSSQ));
-        assert_eq!(addr(126), param(P_STATUS));
-        assert_eq!(STUB_FLASH[132], 0xD7);
+        // The operand addresses the routine reads are where flash_command writes them, for each
+        // place the buffer can be.
+        for buf in super::super::STUB_BUFS {
+            let code = flash_stub(buf);
+            let addr = |off: usize| u16::from_le_bytes([code[off], code[off + 1]]);
+            let param = |p: usize| (buf - PARAMS_LEN as u32 + p as u32) as u16;
+            assert_eq!(addr(11), param(P_FSSET));
+            assert_eq!(addr(17), param(P_FLPMC));
+            assert_eq!(addr(23), param(P_FLAP));
+            assert_eq!(addr(29), param(P_FLAP + 1));
+            assert_eq!(addr(35), param(P_FLSED));
+            assert_eq!(addr(41), param(P_FLSED + 1));
+            assert_eq!(addr(47), buf as u16);
+            assert_eq!(addr(50), param(P_WORDS));
+            assert_eq!(addr(73), param(P_FSSQ));
+            assert_eq!(addr(126), param(P_STATUS));
+            assert_eq!(code[132], 0xD7);
+        }
+        // Nothing else in it addresses that RAM.
+        let relocated = flash_stub(STUB_FLASH_BUF + 0x100);
+        let moved: Vec<usize> = (0..STUB_FLASH.len())
+            .filter(|&i| relocated[i] != STUB_FLASH[i])
+            .collect();
+        assert_eq!(moved, STUB_FLASH_RELOCS.map(|at| at + 1));
     }
 
     /// A first page as a toolchain links it: reset vector to 000D8H, option bytes with

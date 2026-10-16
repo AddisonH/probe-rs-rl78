@@ -268,12 +268,15 @@ fn bank0_is_rebuilt_while_the_program_uses_bank1() {
     s.assert_done();
 }
 
-/// What the 19-byte read routine looks like staged for `count` bytes at `addr`.
+/// What the 19-byte read routine looks like staged for `count` bytes at `addr`, into the low
+/// buffer at FFC10H.
 fn read20(addr: u32, count: u8) -> Vec<u8> {
     let mut code = super::STUB_READ20.to_vec();
     code[1] = (addr >> 16) as u8;
     code[3] = addr as u8;
     code[4] = (addr >> 8) as u8;
+    code[6] = 0x10;
+    code[7] = 0xFC;
     code[9] = count;
     code
 }
@@ -288,12 +291,13 @@ fn code_flash_is_read_by_a_routine_and_ram_is_given_back() {
         // use, which takes the register context (and SP with it).
         s.context(MONITOR_SP, [0, 0, 0x80, 0xFB, 0x0F, 0x06], [0; 32]);
         // The first routine saves all of RAM, then is staged low, behind a branch at the call
-        // gate, called with 5BH, and its buffer at FFD00H read back.
+        // gate, called with 5BH, and its buffer read back: low, at FFC10H, clear of the
+        // monitor's stack at FFBFAH.
         s.read(0xF_FB00, &ram)
             .write(0xF_FB00, &read20(0x000C0, 4))
             .write(0xF_FED0, &[0xEC, 0x00, 0xFB, 0x0F])
             .exchange(&[0x5B], &[0x00])
-            .read(0xF_FD00, &[0xEF, 0xF7, 0xF9, 0x85]);
+            .read(0xF_FC10, &[0xEF, 0xF7, 0xF9, 0x85]);
         // A read of RAM while it is borrowed goes to the target, but shows the saved copy.
         s.read(0xF_FB00, &[0x41, 0x00]);
         // Resuming puts RAM back first (with the debugger's write to it), then clears the step

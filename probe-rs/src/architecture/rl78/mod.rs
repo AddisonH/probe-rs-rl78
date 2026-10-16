@@ -64,10 +64,14 @@ const STUB_MAX: usize = 0xF0;
 /// staged routine goes here, and the routine returns with `RET`.
 const CALL_GATE: u32 = 0xF_FED0;
 
-/// Where a routine leaves its results. `5BH` replies only with the `00H` prompt, so results come
-/// back through an ordinary read.
-const STUB_BUF: u32 = 0xF_FD00;
+/// Where a routine leaves its results (`5BH` replies only with the `00H` prompt, so results come
+/// back through an ordinary read) and the flash routine finds its data, with its operands in the
+/// [`STUB_BUF_BELOW`] bytes under it. Chosen per halt, clear of the monitor's stack (§49.3): low
+/// by preference, above the boot ROM's stack (`FFC00H` down, on a fresh attach) and below where
+/// programs keep theirs (the top of RAM); high when the program's stack is low.
+const STUB_BUFS: [u32; 2] = [0xF_FC10, 0xF_FDC0];
 const STUB_BUF_SIZE: usize = 256;
+const STUB_BUF_BELOW: usize = 10;
 
 /// How long a routine behind the call gate gets to return, unless it says otherwise.
 const STUB_TIMEOUT: Duration = Duration::from_secs(1);
@@ -92,14 +96,14 @@ const FRAME_LEN: usize = 6;
 const PSW_RBS0: u8 = 1 << 3;
 const PSW_RBS1: u8 = 1 << 5;
 
-/// Copy `count` bytes from `ES:[HL]` to `FFD00H`. This is what Renesas's 365-byte RAM kernel
+/// Copy `count` bytes from `ES:[HL]` to the buffer. This is what Renesas's 365-byte RAM kernel
 /// existed to provide, in 19 bytes: reaching below `F0000H`, which the monitor's own read cannot
 /// do because it addresses through `[HL]` with 16-bit addressing (§5.1).
 ///
 /// ```text
 ///         mov   es, #seg          ; [1]
 ///         movw  hl, #addr16       ; [3][4]
-///         movw  de, #0FD00H       ; [DE] takes no ES prefix, so FFD00H
+///         movw  de, #buf          ; [6][7]; [DE] takes no ES prefix, so F-segment
 ///         mov   b, #count         ; [9], 0 means 256
 /// loop:   mov   a, es:[hl]
 ///         mov   [de], a
@@ -112,7 +116,7 @@ const PSW_RBS1: u8 = 1 << 5;
 const STUB_READ20: [u8; 19] = [
     0x41, 0x00, // mov  es, #seg
     0x36, 0x00, 0x00, // movw hl, #addr16
-    0x34, 0x00, 0xFD, // movw de, #0FD00H
+    0x34, 0x00, 0x00, // movw de, #buf
     0x53, 0x00, // mov  b, #count
     0x11, 0x8B, // mov  a, es:[hl]
     0x99, // mov  [de], a
@@ -124,6 +128,7 @@ const STUB_READ20: [u8; 19] = [
 ];
 const READ20_SEG: usize = 1;
 const READ20_ADDR: usize = 3;
+const READ20_BUF: usize = 6;
 const READ20_COUNT: usize = 9;
 
 /// Offset of a bank register within one read of `FFEE0H`–`FFEFFH`. Banks are numbered 0..3 but
@@ -178,6 +183,8 @@ pub struct Rl78CoreState {
     ram_shadow: Option<Box<[u8]>>,
     /// The flash routine is staged at `STUB_BASE`, with the call gate pointing at it.
     flash_resident: bool,
+    /// Where the routines' buffer is this halt.
+    stub_buf: Option<u32>,
     /// `FSSET` for the clock the program left running, read once per halt.
     fsset: Option<u8>,
     /// Halted where an attach under reset leaves the part: the boot ROM's idle loop, before the
@@ -209,7 +216,7 @@ impl Rl78CoreState {
 pub struct Rl78<'probe> {
     interface: &'probe mut dyn Rl78OcdInterface,
     state: &'probe mut Rl78CoreState,
-    _sequence: std::sync::Arc<dyn Rl78DebugSequence>,
+    sequence: std::sync::Arc<dyn Rl78DebugSequence>,
 }
 
 impl<'probe> Rl78<'probe> {
@@ -222,7 +229,7 @@ impl<'probe> Rl78<'probe> {
         Ok(Self {
             interface,
             state,
-            _sequence: sequence,
+            sequence,
         })
     }
 
@@ -375,6 +382,7 @@ impl<'probe> Rl78<'probe> {
         self.state.context = None;
         self.state.ram_shadow = None;
         self.state.flash_resident = false;
+        self.state.stub_buf = None;
         self.state.fsset = None;
         self.state.at_boot_rom = false;
         self.state.halt_reason = Some(reason);
@@ -418,9 +426,9 @@ impl<'probe> Rl78<'probe> {
     /// program is halted, the monitor runs on the program's stack, and a routine or buffer
     /// written over it would wreck the monitor's return address.
     fn check_scratch(&mut self, scratch: Range<u32>) -> Result<(), Error> {
-        let sp = protocol::ADDR16_BASE | u32::from(self.load_context()?.monitor_sp);
-        let stack = sp - MONITOR_STACK_BELOW..sp + FRAME_LEN as u32;
+        let stack = self.monitor_stack()?;
         if scratch.start < stack.end && stack.start < scratch.end {
+            let sp = stack.start + MONITOR_STACK_BELOW;
             return Err(Error::Other(format!(
                 "the program's stack (SP {:05X}H) reaches {:05X}H-{:05X}H, which the debugger \
                  needs for its routines",
@@ -430,6 +438,30 @@ impl<'probe> Rl78<'probe> {
             )));
         }
         Ok(())
+    }
+
+    /// The RAM the monitor's stack uses while it runs a routine.
+    fn monitor_stack(&mut self) -> Result<Range<u32>, Error> {
+        let sp = protocol::ADDR16_BASE | u32::from(self.load_context()?.monitor_sp);
+        Ok(sp - MONITOR_STACK_BELOW..sp + FRAME_LEN as u32)
+    }
+
+    /// The routines' buffer for this halt: the first of [`STUB_BUFS`] the monitor's stack leaves
+    /// alone, with the operands below it.
+    fn stub_buf(&mut self) -> Result<u32, Error> {
+        if let Some(buf) = self.state.stub_buf {
+            return Ok(buf);
+        }
+        let stack = self.monitor_stack()?;
+        let buf = STUB_BUFS
+            .into_iter()
+            .find(|&buf| {
+                let used = buf - STUB_BUF_BELOW as u32..buf + STUB_BUF_SIZE as u32;
+                used.end <= stack.start || stack.end <= used.start
+            })
+            .expect("the candidates are further apart than the monitor's stack is long");
+        self.state.stub_buf = Some(buf);
+        Ok(buf)
     }
 
     /// Put a routine in RAM behind the monitor's call gate.
@@ -460,15 +492,32 @@ impl<'probe> Rl78<'probe> {
     }
 
     /// Read anywhere in the 20-bit space by running [`STUB_READ20`] and reading its buffer.
-    fn read_far(&mut self, mut address: u32, data: &mut [u8]) -> Result<(), Error> {
-        self.check_scratch(STUB_BUF..STUB_BUF + STUB_BUF_SIZE as u32)?;
+    fn read_far(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+        // What the mirror shows, the monitor reads directly: no routine, no borrowed RAM.
+        let mirror = self.sequence.code_flash_mirror();
+        if let Some((d, _)) = overlap(address, data.len(), mirror) {
+            let (head, rest) = data.split_at_mut(d.start);
+            let (mirrored, tail) = rest.split_at_mut(d.len());
+            self.read_far_by_routine(address, head)?;
+            self.read_f_segment(protocol::ADDR16_BASE + address + d.start as u32, mirrored)?;
+            return self.read_far_by_routine(address + d.end as u32, tail);
+        }
+        self.read_far_by_routine(address, data)
+    }
+
+    fn read_far_by_routine(&mut self, mut address: u32, data: &mut [u8]) -> Result<(), Error> {
+        if data.is_empty() {
+            return Ok(());
+        }
+        let buf = self.stub_buf()?;
         for chunk in data.chunks_mut(STUB_BUF_SIZE) {
             let mut code = STUB_READ20;
             code[READ20_SEG] = (address >> 16) as u8 & 0x0F;
             code[READ20_ADDR..READ20_ADDR + 2].copy_from_slice(&(address as u16).to_le_bytes());
+            code[READ20_BUF..READ20_BUF + 2].copy_from_slice(&(buf as u16).to_le_bytes());
             code[READ20_COUNT] = chunk.len() as u8; // 256 encodes as 0
             self.run_stub(&code)?;
-            self.interface.read_mem(STUB_BUF, chunk)?;
+            self.interface.read_mem(buf, chunk)?;
             address += chunk.len() as u32;
         }
         Ok(())
@@ -776,12 +825,11 @@ impl CoreInterface for Rl78<'_> {
 
     fn step(&mut self) -> Result<CoreInformation, Error> {
         self.require_halted("step")?;
-        // The instruction at the PC runs, so no trap there; the rest are put in place.
-        if !self.state.breakpoints.is_idle() {
-            let pc = self.pc()? as u32;
-            self.sync_breakpoints(Some(pc))?;
+        if self.state.breakpoints.is_idle() {
+            self.step_raw()?;
+        } else {
+            self.step_over_traps()?;
         }
-        self.step_raw()?;
         Ok(CoreInformation { pc: self.pc()? })
     }
 

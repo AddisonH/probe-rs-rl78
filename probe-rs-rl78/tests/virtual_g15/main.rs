@@ -105,6 +105,16 @@ fn memory_round_trip_and_code_flash() {
     let mut m = [0; 6];
     core.read_8(0xF_0800, &mut m).unwrap();
     assert_eq!(&m, b"mirror");
+    // Code flash the mirror shows is read through it, with no routine; a read across its start
+    // takes the routine for the part below.
+    let calls = g15.lock().calls;
+    core.read_8(0x0800, &mut m).unwrap();
+    assert_eq!(&m, b"mirror");
+    assert_eq!(g15.lock().calls, calls);
+    let mut across = [0; 8];
+    core.read_8(0x07FE, &mut across).unwrap();
+    assert_eq!(&across[2..], b"mirror");
+    assert_eq!(g15.lock().calls, calls + 1);
     core.read_8(PROG, &mut back).unwrap();
     assert_eq!(back[..], data[..], "the routine's RAM is the user's again");
 }
@@ -578,29 +588,38 @@ fn flash_with_a_chip_erase() {
 }
 
 /// The debugger's routines and buffers live in the program's RAM. While the program is halted
-/// the monitor runs on the program's stack, so a stack reaching down into them would have its
-/// return address overwritten: the driver refuses instead.
+/// the monitor runs on the program's stack, so a buffer over it would wreck the monitor's return
+/// address: the buffer goes low in RAM, or high when the stack is low (§49.3). Only a stack down
+/// in the routines' own code is refused.
 #[test]
-fn routines_refuse_ram_under_the_stack() {
+fn routines_avoid_the_stack() {
     let g15 = VirtualG15::new();
+    g15.lock().poke(0x0100, &(0..=255).collect::<Vec<u8>>());
     let mut session = session(&g15);
     let mut core = session.core(0).unwrap();
-    // movw sp, #0xfd10; 1: mov 0xfffab, #0xac; br $1b
-    load(
-        &mut core,
-        &[0xCB, 0xF8, 0x10, 0xFD, 0xCE, 0xAB, 0xAC, 0xEF, 0xFB],
-    );
-    core.run().unwrap();
-    g15.run_for_ms(1);
-    core.halt(Duration::from_millis(100)).unwrap();
-    // 256 bytes through the read routine's buffer at FFD00H would cover the monitor's return
-    // address, a few bytes below FFD10H.
-    let mut code = [0; 256];
-    let err = core.read_8(0x100, &mut code).unwrap_err().to_string();
-    assert!(err.contains("stack"), "{err}");
-    // The monitor is unharmed.
-    assert_eq!(reg(&mut core, SP_ID), 0xF_FD10);
-    core.step().unwrap();
+    for sp in [0xFE00u16, 0xFD10, 0xFC20, 0xFB10] {
+        // movw sp, #sp; 1: mov 0xfffab, #0xac; br $1b
+        let [lo, hi] = sp.to_le_bytes();
+        load(
+            &mut core,
+            &[0xCB, 0xF8, lo, hi, 0xCE, 0xAB, 0xAC, 0xEF, 0xFB],
+        );
+        core.run().unwrap();
+        g15.run_for_ms(1);
+        core.halt(Duration::from_millis(100)).unwrap();
+        let mut code = [0; 256];
+        let read = core.read_8(0x100, &mut code);
+        if sp == 0xFB10 {
+            let err = read.unwrap_err().to_string();
+            assert!(err.contains("stack"), "{err}");
+        } else {
+            read.unwrap();
+            assert_eq!(code[..], (0..=255).collect::<Vec<u8>>()[..], "SP {sp:04X}H");
+        }
+        // The monitor is unharmed.
+        assert_eq!(reg(&mut core, SP_ID), 0xF_0000 | u64::from(sp));
+        core.step().unwrap();
+    }
 }
 
 /// Where [`image`] puts `FEED_AND_COUNT`'s `incw`: after `movw sp` at `000D8H` and the feed.
@@ -637,12 +656,23 @@ fn breakpoint_in_flash() {
         assert_eq!(g15.lock().peek(INCW_IN_FLASH as u32), 0xFF);
 
         let n = counter(&mut core);
+        let calls = g15.lock().calls;
         for i in 1..=3 {
             core.run().unwrap();
             core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
             assert_eq!(reg(&mut core, PC_ID), INCW_IN_FLASH);
             assert_eq!(counter(&mut core), n + i, "one INCW per continue");
         }
+        assert_eq!(
+            g15.lock().flash().blocks_erased,
+            erased + 1,
+            "continuing steps a copy: no rewrite"
+        );
+        assert_eq!(
+            g15.lock().calls,
+            calls + 3,
+            "one routine a continue, to read the code: block 0 is below the mirror"
+        );
 
         core.clear_hw_breakpoint(INCW_IN_FLASH).unwrap();
         core.run().unwrap();
@@ -687,6 +717,106 @@ fn breakpoint_in_ram() {
 
 /// Two breakpoints in one block share its rewrites, and clearing one keeps the other. From the
 /// first, the next instruction is the second: continuing stops there without running on.
+/// A breakpoint in code the mirror shows (`00800H` up): the block is read through the mirror to
+/// plant the trap, and a continue reads the instruction the same way, with no routine at all.
+#[test]
+fn breakpoint_above_the_mirror_start() {
+    const CODE: u64 = 0x0800;
+    const INCW: u64 = CODE + 7;
+    let mut text = vec![0xCB, 0xF8, 0x20, 0xFE]; // movw sp, #0xfe20
+    text.extend(FEED_AND_COUNT);
+    let image = [
+        (0x0000, vec![0x00, 0x08]),
+        (0x00C0, vec![0xEE, 0xFF, 0xF9, 0x85]),
+        (CODE, text),
+    ];
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    flash(&mut session, &image, false);
+    let mut core = session.core(0).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    core.set_hw_breakpoint(INCW).unwrap();
+    core.run().unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    assert_eq!(reg(&mut core, PC_ID), INCW);
+    let erased = g15.lock().flash().blocks_erased;
+    let calls = g15.lock().calls;
+    let n = counter(&mut core);
+    for i in 1..=3 {
+        core.run().unwrap();
+        core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+        assert_eq!(reg(&mut core, PC_ID), INCW);
+        assert_eq!(counter(&mut core), n + i);
+    }
+    assert_eq!(g15.lock().flash().blocks_erased, erased, "no rewrites");
+    assert_eq!(g15.lock().calls, calls, "no routines");
+}
+
+/// Continuing from a breakpoint runs a copy of the instruction under it from below the stack
+/// (a displaced step). Calls push the address after the copy, which has to become the address
+/// after the original; relative branches and calls land relative to the copy; returns and
+/// absolute branches land where they say.
+#[test]
+fn displaced_steps_over_calls_and_branches() {
+    // dc: mov 0xfffab, #0xac
+    // df: call !sub          (e9)
+    // e2: call $!sub         (e9)
+    // e5: br $0xdc
+    // e7: nop; nop
+    // e9: sub: incw !0xffe40
+    // ec: ret
+    #[rustfmt::skip]
+    const CALLS: [u8; 17] = [
+        0xCE, 0xAB, 0xAC, 0xFD, 0xE9, 0x00, 0xFE, 0x04, 0x00, 0xEF, 0xF5, 0x00, 0x00,
+        0xA2, 0x40, 0xFE, 0xD7,
+    ];
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    flash(&mut session, &image(&CALLS), false);
+    let mut core = session.core(0).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    for address in [0xDF, 0xE2, 0xE5, 0xEC] {
+        core.set_hw_breakpoint(address).unwrap();
+    }
+    core.run().unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    assert_eq!(reg(&mut core, PC_ID), 0xDF);
+    let erased = g15.lock().flash().blocks_erased;
+    let sp = reg(&mut core, SP_ID);
+    let n = counter(&mut core);
+
+    // (PC, SP below the caller's, count) at each stop.
+    let expected = [
+        (0xEC, 4, 1),
+        (0xE2, 0, 1),
+        (0xEC, 4, 2),
+        (0xE5, 0, 2),
+        (0xDF, 0, 2),
+        (0xEC, 4, 3),
+    ];
+    for (pc, pushed, count) in expected {
+        core.run().unwrap();
+        core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+        assert_eq!(reg(&mut core, PC_ID), pc);
+        assert_eq!(reg(&mut core, SP_ID), sp - pushed, "SP at {pc:#x}");
+        assert_eq!(counter(&mut core), n + count, "count at {pc:#x}");
+    }
+    assert_eq!(g15.lock().flash().blocks_erased, erased, "no rewrites");
+
+    // A step from a breakpoint is displaced too.
+    assert_eq!(
+        core.step().unwrap().pc,
+        0xE2,
+        "RET, to after the first call"
+    );
+    assert_eq!(core.step().unwrap().pc, 0xE9, "the relative call");
+    assert_eq!(
+        g15.lock().flash().blocks_erased,
+        erased,
+        "still no rewrites"
+    );
+}
+
 #[test]
 fn two_breakpoints_in_one_block() {
     const FEED: u64 = 0xDC;

@@ -166,6 +166,8 @@ pub struct Model {
     pub flash_protocol_writes: u32,
     /// Program one bit wrong in the next Protocol B write, as a failing cell would.
     pub flash_protocol_fault: bool,
+    /// Routines run behind `5BH`, for tests.
+    pub calls: u32,
 }
 
 /// The peripherals the debugger meets: the program's stores to `WDTE` (the register itself keeps
@@ -316,6 +318,7 @@ impl Model {
             debug_boot: false,
             flash_protocol_writes: 0,
             flash_protocol_fault: false,
+            calls: 0,
         }
     }
 
@@ -624,6 +627,7 @@ impl Model {
 
     /// `CALL !!0FFED0H` from 0EFFB1H, run until the routine returns to 0EFFB5H.
     fn call_gate(&mut self) {
+        self.calls += 1;
         let r = CALL_RETURN;
         self.push(&[r as u8, (r >> 8) as u8, (r >> 16) as u8, 0]);
         self.cpu.pc = CALL_GATE;

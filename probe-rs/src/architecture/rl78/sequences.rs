@@ -1,6 +1,6 @@
 //! Per-family behaviour for RL78 targets.
 
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, ops::Range, sync::Arc};
 
 use super::Rl78Flash;
 use crate::flashing::{DebugFlashSequence, FlashVerify};
@@ -20,6 +20,12 @@ pub trait Rl78DebugSequence: Send + Sync + Debug {
     fn flash_verify_sequence(&self) -> Option<Arc<dyn FlashVerify>> {
         None
     }
+
+    /// The code flash the mirror shows at `F0000H` plus its address, which the monitor reads
+    /// directly; the rest of code flash takes a routine and borrowed RAM.
+    fn code_flash_mirror(&self) -> Range<u32> {
+        0..0
+    }
 }
 
 /// The default sequence, which is the RL78/G15 class.
@@ -36,5 +42,11 @@ impl DefaultRl78Sequence {
 impl Rl78DebugSequence for DefaultRl78Sequence {
     fn debug_flash_sequence(&self) -> Option<Arc<dyn DebugFlashSequence>> {
         Some(Arc::new(Rl78Flash::from_env()))
+    }
+
+    /// The G15's mirror starts where the 2nd SFRs end, `F0800H` [g15:p62], and runs to the end
+    /// of its largest flash.
+    fn code_flash_mirror(&self) -> Range<u32> {
+        0x0800..0x2000
     }
 }
