@@ -70,3 +70,26 @@ variants:
       end: 0x100000
     cores:
     - main
+  flash_algorithms:
+  - rl78-g15-code-flash
+
+# Host-side: the debugger drives the flash sequencer through a routine behind the monitor's call
+# gate (probe-rs's architecture/rl78/flash.rs). A sector is a 1 KB block, the erase unit
+# [g15:p672]; a page is what one call writes, 64 words.
+flash_algorithms:
+- name: rl78-g15-code-flash
+  description: Code flash by self-programming, through the on-chip debugger
+  default: true
+  flash_properties:
+    address_range:
+      start: 0x0
+      end: 0x2000
+    page_size: 0x100
+    erased_byte_value: 0xff
+    program_page_timeout: 1000
+    erase_sector_timeout: 1000
+    sectors:
+    - size: 0x400
+      address: 0x0
+  cores:
+  - main

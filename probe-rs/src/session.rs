@@ -1058,6 +1058,15 @@ impl Session {
         }
     }
 
+    /// The RL78 core, for what [`Core`] has no call for (flash programming).
+    pub(crate) fn get_rl78_core(&mut self) -> Result<crate::architecture::rl78::Rl78<'_>, Error> {
+        let ArchitectureInterface::Rl78(probe) = &mut self.interfaces else {
+            return Err(Error::Other("not an RL78 session".into()));
+        };
+        let interface = probe.try_get_rl78_interface()?;
+        self.cores[0].rl78_core(interface)
+    }
+
     /// Clears all hardware breakpoints on all cores
     pub fn clear_all_hw_breakpoints(&mut self) -> Result<(), Error> {
         // RL78 has no breakpoint hardware to clear, and halting a core to find that out would stop

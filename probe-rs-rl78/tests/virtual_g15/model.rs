@@ -23,9 +23,11 @@
 //!   instruction with the monitor disarmed is an internal reset into a normal boot.
 //! - A break on TOOL0 while the monitor is listening is a `00H` it answers; a reset cuts the
 //!   answer off, and what is left arrives after the next flush (§47.2).
+//! - The code flash sequencer (§7.1): write and block erase, with the error flags. A command the
+//!   manual does not allow panics, as a driver bug.
 //!
-//! Not modelled: Protocol B, pseudo-RRM/DMM (path B's other commands), interrupts and
-//! peripherals, the flash sequencer, and §48.3's slowdown after a `CAH` attach.
+//! Not modelled: Protocol B, pseudo-RRM/DMM (path B's other commands), interrupts, other
+//! peripherals, data flash, and §48.3's slowdown after a `CAH` attach.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -57,8 +59,27 @@ const ES: u32 = 0xF_FFFD;
 /// Bank 0: X A C B E D L H.
 const BANK0: u32 = 0xF_FEF8;
 const SECURITY_ID: u32 = 0x0_00C4;
+
+// The flash sequencer's registers, 2nd SFRs [g15:p74].
+const FSSET: u32 = 0xF_00BE;
+const FLPMC: u32 = 0xF_00C0;
+const FSSQ: u32 = 0xF_00C1;
+const FLAPL: u32 = 0xF_00C2;
+const FLAPH: u32 = 0xF_00C3;
+const FLSEDL: u32 = 0xF_00C4;
+const FLSEDH: u32 = 0xF_00C5;
+const FSASTL: u32 = 0xF_00C6;
+const FSASTH: u32 = 0xF_00C7;
+const FLWLL: u32 = 0xF_00C8;
+const FLWHH: u32 = 0xF_00CB;
+/// A code flash block, the erase unit [g15:p672].
+const BLOCK: u32 = 0x400;
 const OCD_OPTION: u32 = 0x0_00C3;
 const WDT_OPTION: u32 = 0x0_00C0;
+/// FRQSEL, the on-chip oscillator's frequency at reset [g15:p651].
+const FREQ_OPTION: u32 = 0x0_00C2;
+const CKC: u32 = 0xF_FFA4;
+const HOCODIV: u32 = 0xF_00A8;
 
 const CALL_GATE: u32 = 0xF_FED0;
 /// Where the ROM's `CALL !!0FFED0H` returns to.
@@ -123,19 +144,102 @@ pub struct Model {
     pub resets: u32,
 }
 
-/// The program's stores to `WDTE`. The register itself keeps reading `9AH` or `1AH`.
+/// The peripherals the debugger meets: the program's stores to `WDTE` (the register itself keeps
+/// reading `9AH` or `1AH`), and the flash sequencer.
 #[derive(Default)]
-struct Wdte {
-    writes: Vec<u8>,
+struct Peripherals {
+    wdte_writes: Vec<u8>,
+    flash: FlashSequencer,
 }
 
-impl Io for Wdte {
-    fn write(&mut self, _mem: &mut Memory, a: u32, v: u8) -> bool {
-        if a != WDTE {
-            return false;
+impl Io for Peripherals {
+    fn read(&mut self, _mem: &mut Memory, a: u32) -> Option<u8> {
+        match a {
+            FSASTH => Some(u8::from(self.flash.sqend) << 6),
+            FSASTL => Some(self.flash.errors),
+            _ => None,
         }
-        self.writes.push(v);
-        true
+    }
+
+    fn write(&mut self, mem: &mut Memory, a: u32, v: u8) -> bool {
+        match a {
+            WDTE => self.wdte_writes.push(v),
+            FSSQ if v & 0x80 != 0 => self.flash.start(mem, v),
+            // SQEND clears when SQST does [g15:p677].
+            FSSQ => self.flash.sqend = false,
+            _ => return false,
+        }
+        a == WDTE
+    }
+}
+
+/// The code flash sequencer [g15:p669]-[g15:p680]. It does a command at once, where hardware
+/// keeps the CPU waiting. A command the manual does not allow panics: hardware would do
+/// something undefined, and the driver that sent it has a bug.
+#[derive(Default)]
+pub struct FlashSequencer {
+    sqend: bool,
+    /// FSASTL: SEQER, WRER, ERER.
+    errors: u8,
+    /// Words written and blocks erased, for tests.
+    pub words_written: u32,
+    pub blocks_erased: u32,
+}
+
+impl FlashSequencer {
+    fn start(&mut self, mem: &mut Memory, fssq: u8) {
+        let b = |a: u32| mem.b[a as usize];
+        let fsset = b(FSSET) & 0x1F;
+        // The CPU clock in MHz, rounded up, less one [g15:p675].
+        let want = (CLOCK_HZ / 1_000_000 - 1) as u8;
+        assert_eq!(
+            fsset,
+            want,
+            "virtual G15: FSSET {fsset:02X}H for a {} MHz clock; the manual wants {want:02X}H",
+            CLOCK_HZ / 1_000_000
+        );
+        let flpmc = b(FLPMC);
+        assert_eq!(
+            flpmc & 0x20,
+            0,
+            "virtual G15: data flash (FLPMC.SELDFL) is not modelled"
+        );
+        let flap = u32::from(b(FLAPL)) | u32::from(b(FLAPH) & 0x1F) << 8;
+        // FLSEDL's bits 1-0 are fixed at 0 [g15:p671].
+        let flsed = u32::from(b(FLSEDL) & 0xFC) | u32::from(b(FLSEDH) & 0x1F) << 8;
+        self.sqend = true;
+        self.errors = 0;
+        // FWEDIS = 0 and FLSPM = 1, or the sequencer refuses [g15:p674].
+        if flpmc & 0x0A != 0x02 {
+            self.errors = 0x10;
+            return;
+        }
+        match fssq & 0x07 {
+            1 => {
+                assert_eq!(flap % 4, 0, "virtual G15: write to {flap:05X}H, not a word");
+                let word: Vec<u8> = (FLWLL..=FLWHH).map(b).collect();
+                let old: Vec<u8> = (flap..flap + 4).map(b).collect();
+                // Programming only clears bits.
+                if old.iter().zip(&word).any(|(o, w)| !o & w != 0) {
+                    self.errors = 0x02;
+                    return;
+                }
+                mem.poke(flap, &word);
+                self.words_written += 1;
+            }
+            4 => {
+                // Table 19-9: FLAP is a block start, FLSED a block start with bits 9-2 set.
+                assert!(
+                    flap % BLOCK == 0 && flsed % BLOCK == 0x3FC && flap <= flsed,
+                    "virtual G15: block erase with FLAP {flap:05X}H, FLSED {flsed:05X}H [g15:p671]"
+                );
+                for block in (flap..=flsed).step_by(BLOCK as usize) {
+                    mem.poke(block, &[0xFF; BLOCK as usize]);
+                    self.blocks_erased += 1;
+                }
+            }
+            _ => panic!("virtual G15: FSSQ {fssq:02X}H is a prohibited command [g15:p676]"),
+        }
     }
 }
 
@@ -170,7 +274,7 @@ fn g15_map() -> MemMap {
 impl Model {
     fn new() -> Self {
         let mut mem = Memory::new(g15_map());
-        mem.set_io(Box::new(Wdte::default()));
+        mem.set_io(Box::new(Peripherals::default()));
         let cpu = Cpu::new(mem, Core::S2);
         Self {
             cpu,
@@ -213,6 +317,18 @@ impl Model {
         } else {
             self.cpu.mem.poke(a, &[v]);
         }
+    }
+
+    fn peripherals(&mut self) -> &mut Peripherals {
+        self.cpu
+            .mem
+            .io_mut()
+            .expect("the peripherals are installed")
+    }
+
+    /// The flash sequencer, for its counts.
+    pub fn flash(&mut self) -> &FlashSequencer {
+        &self.peripherals().flash
     }
 
     /// Load bytes anywhere, flash included, without side effects.
@@ -282,8 +398,23 @@ impl Model {
 
     /// A normal boot: from the reset vector, the option bytes applied, the monitor disarmed until
     /// the program's debug stub arms it.
-    fn boot(&mut self) {
+    /// What a reset does to the registers the debugger reads: the CPU's, the clock's and the flash
+    /// sequencer's [g15:p74].
+    fn reset_registers(&mut self) {
         self.cpu.reset();
+        let freq = self.peek(FREQ_OPTION) & 0x07;
+        let b = &mut self.cpu.mem.b;
+        b[CKC as usize] = 0x00;
+        // HOCODIV starts as the option byte's FRQSEL [g15:p145].
+        b[HOCODIV as usize] = freq;
+        for a in [FSSET, FSSQ, FLAPL, FLAPH, FLSEDL, FLSEDH] {
+            b[a as usize] = 0;
+        }
+        b[FLPMC as usize] = 0x08;
+    }
+
+    fn boot(&mut self) {
+        self.reset_registers();
         for a in [ENGINE_MODE, STEP_ENABLE, ENGINE_SELECT, OCD_CTRL] {
             self.cpu.mem.b[a as usize] = 0;
         }
@@ -508,7 +639,7 @@ impl Model {
             return;
         }
         let stop = self.cpu.step();
-        let writes = std::mem::take(&mut self.cpu.mem.io_mut::<Wdte>().unwrap().writes);
+        let writes = std::mem::take(&mut self.peripherals().wdte_writes);
         for v in writes {
             self.wdte_written(v);
             if self.mode != Mode::Running {
@@ -610,7 +741,7 @@ impl Model {
         if self.peek(OCD_OPTION) & 0x80 == 0 {
             return; // 0EFFE5H spins until the on-chip debug option byte enables debugging
         }
-        self.cpu.reset();
+        self.reset_registers();
         for i in 0..8 {
             self.set_r(i, 0);
         }

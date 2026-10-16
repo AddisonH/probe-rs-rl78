@@ -31,9 +31,12 @@ use crate::{
 };
 
 pub mod communication_interface;
+mod flash;
 pub mod protocol;
 pub mod registers;
 pub mod sequences;
+
+pub use flash::Rl78Flash;
 
 #[cfg(test)]
 mod scripted;
@@ -63,6 +66,13 @@ const CALL_GATE: u32 = 0xF_FED0;
 /// back through an ordinary read.
 const STUB_BUF: u32 = 0xF_FD00;
 const STUB_BUF_SIZE: usize = 256;
+
+/// How long a routine behind the call gate gets to return, unless it says otherwise.
+const STUB_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Bytes below the monitor's SP that its own calls use while a routine runs: the call gate's
+/// return address, and the ROM's transmit routine after it.
+const MONITOR_STACK_BELOW: u32 = 8;
 
 /// The four register banks, bank 3 first: bank 0 sits at the high end [arch:p20].
 const BANKS_ADDR: u32 = 0xF_FEE0;
@@ -164,6 +174,10 @@ pub struct Rl78CoreState {
     context: Option<Context>,
     /// The user's RAM, saved before the debugger first overwrote any of it this halt.
     ram_shadow: Option<Box<[u8]>>,
+    /// The flash routine is staged at `STUB_BASE`, with the call gate pointing at it.
+    flash_resident: bool,
+    /// `FSSET` for the clock the program left running, read once per halt.
+    fsset: Option<u8>,
 }
 
 impl Rl78CoreState {
@@ -341,6 +355,8 @@ impl<'probe> Rl78<'probe> {
         self.state.sync = sync;
         self.state.context = None;
         self.state.ram_shadow = None;
+        self.state.flash_resident = false;
+        self.state.fsset = None;
         self.state.halt_reason = Some(reason);
         self.interface.unlock()?;
         Ok(())
@@ -364,6 +380,7 @@ impl<'probe> Rl78<'probe> {
     }
 
     fn ram_return(&mut self) -> Result<(), Error> {
+        self.state.flash_resident = false;
         if let Some(ram) = self.state.ram_shadow.take() {
             if let Err(e) = self.interface.write_mem(RAM_BASE, &ram) {
                 tracing::error!(
@@ -377,26 +394,54 @@ impl<'probe> Rl78<'probe> {
         Ok(())
     }
 
-    /// Stage a routine in RAM and call it through the monitor's call gate.
-    fn run_stub(&mut self, code: &[u8]) -> Result<(), Error> {
+    /// Check that RAM the debugger is about to use is clear of the monitor's stack. While the
+    /// program is halted, the monitor runs on the program's stack, and a routine or buffer
+    /// written over it would wreck the monitor's return address.
+    fn check_scratch(&mut self, scratch: Range<u32>) -> Result<(), Error> {
+        let sp = protocol::ADDR16_BASE | u32::from(self.load_context()?.monitor_sp);
+        let stack = sp - MONITOR_STACK_BELOW..sp + FRAME_LEN as u32;
+        if scratch.start < stack.end && stack.start < scratch.end {
+            return Err(Error::Other(format!(
+                "the program's stack (SP {:05X}H) reaches {:05X}H-{:05X}H, which the debugger \
+                 needs for its routines",
+                sp + FRAME_LEN as u32,
+                scratch.start,
+                scratch.end - 1
+            )));
+        }
+        Ok(())
+    }
+
+    /// Put a routine in RAM behind the monitor's call gate.
+    fn stage_stub(&mut self, code: &[u8]) -> Result<(), Error> {
         if code.is_empty() || code.len() > STUB_MAX {
             return Err(Error::Other(format!(
                 "a {}-byte routine does not fit in 1..={STUB_MAX} bytes",
                 code.len()
             )));
         }
+        self.check_scratch(STUB_BASE..STUB_BASE + code.len() as u32)?;
+        self.check_scratch(CALL_GATE..CALL_GATE + 4)?;
         self.ram_borrow()?;
+        self.state.flash_resident = false;
         self.interface.write_mem(STUB_BASE, code)?;
         // BR !!STUB_BASE
         let s = STUB_BASE.to_le_bytes();
         self.interface
             .write_mem(CALL_GATE, &[0xEC, s[0], s[1], s[2] & 0x0F])?;
-        self.interface.call_stub()?;
+        Ok(())
+    }
+
+    /// Stage a routine in RAM and call it through the monitor's call gate.
+    fn run_stub(&mut self, code: &[u8]) -> Result<(), Error> {
+        self.stage_stub(code)?;
+        self.interface.call_stub(STUB_TIMEOUT)?;
         Ok(())
     }
 
     /// Read anywhere in the 20-bit space by running [`STUB_READ20`] and reading its buffer.
     fn read_far(&mut self, mut address: u32, data: &mut [u8]) -> Result<(), Error> {
+        self.check_scratch(STUB_BUF..STUB_BUF + STUB_BUF_SIZE as u32)?;
         for chunk in data.chunks_mut(STUB_BUF_SIZE) {
             let mut code = STUB_READ20;
             code[READ20_SEG] = (address >> 16) as u8 & 0x0F;

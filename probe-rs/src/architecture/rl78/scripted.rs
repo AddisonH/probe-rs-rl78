@@ -275,6 +275,9 @@ fn code_flash_is_read_by_a_routine_and_ram_is_given_back() {
     let mut after = ram.clone();
     after[0x80] = 0xAA;
     let mut s = Session::attached([0; 4], |s| {
+        // Before borrowing RAM, the driver checks the monitor's stack is clear of what it will
+        // use, which takes the register context (and SP with it).
+        s.context(MONITOR_SP, [0, 0, 0x80, 0xFB, 0x0F, 0x06], [0; 32]);
         // The first routine saves all of RAM, then is staged low, behind a branch at the call
         // gate, called with 5BH, and its buffer at FFD00H read back.
         s.read(0xF_FB00, &ram)

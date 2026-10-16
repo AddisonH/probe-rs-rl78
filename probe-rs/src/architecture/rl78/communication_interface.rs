@@ -51,6 +51,17 @@ pub enum Rl78Error {
     /// {0} is not supported on RL78 yet.
     Unsupported(&'static str),
 
+    /// Flash {op} at {address:05X}H failed: FSASTL error flags {status:02X}H (SEQER 10H, WRER
+    /// 02H, ERER 01H).
+    Flash {
+        /// What the sequencer was doing.
+        op: &'static str,
+        /// The first address of the command.
+        address: u32,
+        /// FSASTL, masked to its error flags.
+        status: u8,
+    },
+
     /// The probe failed.
     Probe(#[from] DebugProbeError),
 
@@ -71,14 +82,19 @@ pub trait Rl78OcdInterface: Send + fmt::Debug {
     /// a step, or the target stopping by itself.
     fn unlock(&mut self) -> Result<(), Rl78Error>;
 
+    /// The security ID this interface unlocks with. Flash programming writes it into an image
+    /// that leaves the part's ID erased, so the next attach still unlocks.
+    fn security_id(&self) -> [u8; SECURITY_ID_LEN];
+
     /// Read memory in `F0000H`–`FFFFFH`. The target must be halted.
     fn read_mem(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error>;
 
     /// Write memory in `F0000H`–`FFFFFH`. The target must be halted.
     fn write_mem(&mut self, address: u32, data: &[u8]) -> Result<(), Rl78Error>;
 
-    /// Execute `CALL !!0FFED0H` inside the monitor and return when the routine there returns.
-    fn call_stub(&mut self) -> Result<(), Rl78Error>;
+    /// Execute `CALL !!0FFED0H` inside the monitor and return when the routine there returns,
+    /// waiting up to `timeout` for it to do so.
+    fn call_stub(&mut self, timeout: Duration) -> Result<(), Rl78Error>;
 
     /// Load B, C, H and L and return from the debug interrupt. With `single_step`, the target
     /// executes one instruction and re-enters the monitor, and the new sync is returned;
@@ -171,8 +187,13 @@ impl<L: Rl78Uart> UartOcd<L> {
         &mut self.link
     }
 
-    fn read_exact(&mut self, buf: &mut [u8], op: &'static str) -> Result<(), Rl78Error> {
-        let deadline = Instant::now() + REPLY_TIMEOUT;
+    fn read_exact(
+        &mut self,
+        buf: &mut [u8],
+        op: &'static str,
+        timeout: Duration,
+    ) -> Result<(), Rl78Error> {
+        let deadline = Instant::now() + timeout;
         let mut got = 0;
         while got < buf.len() {
             let left = deadline.saturating_duration_since(Instant::now());
@@ -198,13 +219,24 @@ impl<L: Rl78Uart> UartOcd<L> {
         args: &Args,
         want: Option<usize>,
     ) -> Result<(Vec<u8>, Option<Sync>), Rl78Error> {
+        self.xfer_within(op, args, want, REPLY_TIMEOUT)
+    }
+
+    /// [`xfer`](Self::xfer), waiting up to `timeout` for the reply.
+    fn xfer_within(
+        &mut self,
+        op: Op,
+        args: &Args,
+        want: Option<usize>,
+        timeout: Duration,
+    ) -> Result<(Vec<u8>, Option<Sync>), Rl78Error> {
         let req = self.state.encode(op, args)?;
         let shape = self.state.response_shape(op, args)?;
         let want = want.unwrap_or(shape.min);
         tracing::trace!("rl78 {}: TX {:02x?}", op.name(), req);
         self.link.write(&req)?;
         let mut resp = vec![0; want];
-        self.read_exact(&mut resp, op.name())?;
+        self.read_exact(&mut resp, op.name(), timeout)?;
         let reply = self.state.apply_response(op, args, &resp)?;
         let sync = reply.sync;
         let payload = reply.payload.to_vec();
@@ -260,6 +292,10 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
         Ok(sync.expect("the codec decodes a sync for pb_enter_ocd"))
     }
 
+    fn security_id(&self) -> [u8; SECURITY_ID_LEN] {
+        self.security_id
+    }
+
     fn unlock(&mut self) -> Result<(), Rl78Error> {
         self.xfer(Op::UnlockChallenge, &Args::default(), None)?;
         let id = self.security_id;
@@ -306,8 +342,8 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
         Ok(())
     }
 
-    fn call_stub(&mut self) -> Result<(), Rl78Error> {
-        self.xfer(Op::CallKernel, &Args::default(), None)?;
+    fn call_stub(&mut self, timeout: Duration) -> Result<(), Rl78Error> {
+        self.xfer_within(Op::CallKernel, &Args::default(), None, timeout)?;
         Ok(())
     }
 
@@ -367,7 +403,7 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
             return Ok(None);
         }
         // The rest of the sync may still be in flight, and without it B, C, H and L are lost.
-        self.read_exact(&mut buf[n..], "unsolicited sync")?;
+        self.read_exact(&mut buf[n..], "unsolicited sync", REPLY_TIMEOUT)?;
         if buf[SYNC_LEN - 1] != 0x00 {
             return Err(CodecError::Protocol("unsolicited sync").into());
         }

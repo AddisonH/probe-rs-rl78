@@ -14,6 +14,7 @@ use model::VirtualG15;
 use probe_rs::{
     Core, Error, MemoryInterface, Permissions, RegisterId, Session,
     architecture::rl78::{communication_interface::Rl78Error, registers::*},
+    flashing::DownloadOptions,
     probe::Probe,
 };
 use probe_rs_rl78::com::ComProbe;
@@ -38,9 +39,13 @@ const COUNT_IN_BC: [u8; 13] = [
 const SPIN: [u8; 2] = [0xEF, 0xFE];
 
 fn session(g15: &VirtualG15) -> Session {
+    session_with_id(g15, [0; 10])
+}
+
+fn session_with_id(g15: &VirtualG15, security_id: [u8; 10]) -> Session {
     static REGISTER: Once = Once::new();
     REGISTER.call_once(probe_rs_rl78::register_plugin);
-    let probe = ComProbe::new(g15.clone(), [0; 10]);
+    let probe = ComProbe::new(g15.clone(), security_id);
     Probe::from_specific_probe(Box::new(probe))
         .attach("R5F12068", Permissions::default())
         .expect("attach to the virtual G15")
@@ -290,4 +295,101 @@ fn model_break_before_reset_leaves_bytes_behind() {
         enter(&mut g15, true) > 5,
         "the break's answer, then the sync"
     );
+}
+
+/// A small image as a toolchain links it: reset vector, option bytes, the security ID left
+/// erased, code at `000D8H`, and constants in another block.
+fn image() -> Vec<(u64, Vec<u8>)> {
+    let mut code = vec![0xCB, 0xF8, 0x20, 0xFE]; // movw sp, #0xfe20
+    code.extend(FEED_AND_COUNT);
+    vec![
+        (0x0000, vec![0xD8, 0x00]),
+        (0x00C0, vec![0xEE, 0xFF, 0xF9, 0x85]),
+        (0x00D8, code),
+        (0x0900, (0..=255).collect()),
+    ]
+}
+
+fn flash(session: &mut Session, image: &[(u64, Vec<u8>)], chip_erase: bool) {
+    let mut loader = session.target().flash_loader();
+    for (address, data) in image {
+        loader.add_data(*address, data).unwrap();
+    }
+    let mut options = DownloadOptions::default();
+    options.verify = true;
+    options.do_chip_erase = chip_erase;
+    loader.commit(session, options).unwrap();
+}
+
+/// Flash by self-programming (§7.1): the blocks the image touches are erased and written, the
+/// rest are left alone, and an image that leaves the security ID erased gets the session's
+/// (§48.1), so the next attach still unlocks.
+#[test]
+fn flash_an_image() {
+    let id = [0x5A, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xA5];
+    let g15 = VirtualG15::new();
+    {
+        let mut m = g15.lock();
+        m.poke(0x00C4, &id);
+        m.poke(0x1C00, b"untouched");
+    }
+    let mut session = session_with_id(&g15, id);
+    flash(&mut session, &image(), false);
+    {
+        let mut m = g15.lock();
+        assert_eq!(m.flash().blocks_erased, 2, "blocks 0 and 2");
+        let peek =
+            |m: &model::Model, a: u32, n: u32| (a..a + n).map(|a| m.peek(a)).collect::<Vec<_>>();
+        for (address, data) in image() {
+            assert_eq!(peek(&m, address as u32, data.len() as u32), data);
+        }
+        assert_eq!(peek(&m, 0x00C4, 10), id);
+        assert_eq!(peek(&m, 0x1C00, 9), b"untouched");
+        assert_eq!(peek(&m, 0x0400, 4), [0xFF; 4], "erased, not written");
+    }
+
+    let mut core = session.core(0).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    core.reset().unwrap();
+    g15.run_for_ms(5);
+    assert!(
+        g15.lock().peek16(COUNTER as u32) > 100,
+        "the flashed program runs"
+    );
+}
+
+#[test]
+fn flash_with_a_chip_erase() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    flash(&mut session, &image(), true);
+    let mut m = g15.lock();
+    assert_eq!(m.flash().blocks_erased, 8);
+    assert_eq!(m.peek(0x0900 + 0x7F), 0x7F);
+}
+
+/// The debugger's routines and buffers live in the program's RAM. While the program is halted
+/// the monitor runs on the program's stack, so a stack reaching down into them would have its
+/// return address overwritten: the driver refuses instead.
+#[test]
+fn routines_refuse_ram_under_the_stack() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    let mut core = session.core(0).unwrap();
+    // movw sp, #0xfd10; 1: mov 0xfffab, #0xac; br $1b
+    load(
+        &mut core,
+        &[0xCB, 0xF8, 0x10, 0xFD, 0xCE, 0xAB, 0xAC, 0xEF, 0xFB],
+    );
+    core.run().unwrap();
+    g15.run_for_ms(1);
+    core.halt(Duration::from_millis(100)).unwrap();
+    // 256 bytes through the read routine's buffer at FFD00H would cover the monitor's return
+    // address, a few bytes below FFD10H.
+    let mut code = [0; 256];
+    let err = core.read_8(0x100, &mut code).unwrap_err().to_string();
+    assert!(err.contains("stack"), "{err}");
+    // The monitor is unharmed.
+    assert_eq!(reg(&mut core, SP_ID), 0xF_FD10);
+    core.step().unwrap();
 }

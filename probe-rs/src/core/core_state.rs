@@ -270,7 +270,15 @@ impl CombinedCoreState {
         interface: &'probe mut dyn Rl78OcdInterface,
     ) -> Result<Core<'probe>, Error> {
         let name = &target.cores[self.id].name;
+        let id = self.id;
+        Ok(Core::new(id, name, target, self.rl78_core(interface)?))
+    }
 
+    /// The RL78 core itself, for what [`Core`] has no call for (flash programming).
+    pub(crate) fn rl78_core<'probe>(
+        &'probe mut self,
+        interface: &'probe mut dyn Rl78OcdInterface,
+    ) -> Result<crate::architecture::rl78::Rl78<'probe>, Error> {
         let ResolvedCoreOptions::Rl78 { sequence, .. } = &self.core_state.core_access_options
         else {
             unreachable!(
@@ -287,12 +295,7 @@ impl CombinedCoreState {
             );
         };
 
-        Ok(Core::new(
-            self.id,
-            name,
-            target,
-            crate::architecture::rl78::Rl78::new(interface, s, debug_sequence)?,
-        ))
+        crate::architecture::rl78::Rl78::new(interface, s, debug_sequence)
     }
 
     /// The RL78 state, for the session to record the attach.
