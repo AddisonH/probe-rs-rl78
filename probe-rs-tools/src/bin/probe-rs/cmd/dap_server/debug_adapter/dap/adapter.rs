@@ -669,7 +669,10 @@ impl DebugAdapter {
             response_body.indexed_variables = Some(0);
             response_body.named_variables = Some(0);
             response_body.type_ = Some(format!("{:?}", register.core_register.data_type()));
-            response_body.value = written_register_value.to_string();
+            response_body.value = probe_rs_debug::format_register_value(
+                register.core_register,
+                written_register_value,
+            );
             response_body.variables_reference = Some(0);
         } else {
             // Variable caches are server-owned; every non-register update is

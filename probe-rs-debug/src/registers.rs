@@ -75,6 +75,24 @@ impl DebugRegister {
     pub fn get_register_name(&self) -> String {
         self.core_register.to_string()
     }
+
+    /// The value in hex, as many digits as the register is wide: an 8-bit register as `0x0f`,
+    /// not `0x0000000f`. Registers of 32 bits and more print as [`RegisterValue`] does.
+    pub fn value_string(&self) -> String {
+        format_register_value(self.core_register, self.value.unwrap_or_default())
+    }
+}
+
+/// `value` of `register` in hex, as many digits as the register is wide (see
+/// [`DebugRegister::value_string`]).
+pub fn format_register_value(register: &CoreRegister, value: RegisterValue) -> String {
+    let bits = register.size_in_bits();
+    match value {
+        RegisterValue::U32(v) if bits < 32 => {
+            format!("{v:#0width$x}", width = bits.div_ceil(4) + 2)
+        }
+        other => other.to_string(),
+    }
 }
 
 /// All the registers required for debug related operations.
@@ -304,5 +322,41 @@ impl DebugRegisters {
                 false
             })
             .cloned()
+    }
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::format_register_value;
+    use probe_rs::{CoreRegister, RegisterDataType, RegisterId, RegisterValue, UnwindRule};
+
+    fn reg(bits: usize) -> CoreRegister {
+        CoreRegister {
+            roles: &[],
+            id: RegisterId(0),
+            dwarf_id: None,
+            data_type: RegisterDataType::UnsignedInteger(bits),
+            unwind_rule: UnwindRule::Clear,
+        }
+    }
+
+    #[test]
+    fn as_wide_as_the_register() {
+        assert_eq!(
+            format_register_value(&reg(8), RegisterValue::U32(0xF)),
+            "0x0f"
+        );
+        assert_eq!(
+            format_register_value(&reg(16), RegisterValue::U32(0xF)),
+            "0x000f"
+        );
+        assert_eq!(
+            format_register_value(&reg(32), RegisterValue::U32(0xF)),
+            "0x0000000f"
+        );
+        assert_eq!(
+            format_register_value(&reg(64), RegisterValue::U64(0xF)),
+            "0x000000000000000f"
+        );
     }
 }

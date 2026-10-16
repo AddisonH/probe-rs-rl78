@@ -163,7 +163,7 @@ pub async fn variables(
                 indexed_variables: None,
                 named_variables: None,
                 type_: Some(format!("{}", VariableName::RegistersRoot)),
-                value: register.value.unwrap_or_default().to_string(),
+                value: register.value_string(),
                 variables_reference: 0,
             })
             .collect();
