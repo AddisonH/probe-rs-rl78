@@ -35,6 +35,9 @@ pub mod protocol;
 pub mod registers;
 pub mod sequences;
 
+#[cfg(test)]
+mod scripted;
+
 use communication_interface::{Rl78Error, Rl78OcdInterface};
 use protocol::Sync;
 use registers::*;

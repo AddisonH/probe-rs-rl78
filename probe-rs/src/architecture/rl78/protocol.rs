@@ -7,9 +7,9 @@
 //! (session state, operation, response)  -> new session state + result
 //! ```
 //!
-//! so this module holds no transport at all. That is what lets it be checked against the
-//! conformance corpus (every distinct request/response pair seen between a host and an RL78/G15)
-//! with nothing attached; see the tests at the bottom.
+//! so this module holds no transport at all, and is tested with nothing attached. The tests here
+//! take one case per operation; the rl78_debug_re repository also holds this codec to every
+//! distinct request/response pair captured between a host and an RL78/G15.
 //!
 //! **Two protocols share this codec.** Protocol B is Renesas's documented flash protocol for the
 //! G10/G15/G1M/G1N. The OCD protocol is undocumented and was recovered from the device ROM. The
@@ -550,251 +550,53 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    //! The codec against the conformance corpus: every distinct request/response pair observed
-    //! between a host and an RL78/G15, 1,179 of them from 24,760 transactions. For each, rebuild
-    //! the session state, require the encoder to emit exactly the observed request, and require
-    //! the observed reply to be accepted. A failure means the codec and the wire disagree; the
-    //! wire wins.
-    //!
-    //! The corpus lives in the rl78_debug_re repository (`conformance/vectors.json`), not here,
-    //! because some of its `write` vectors carry Renesas's RAM kernel. Point `RL78_VECTORS` at it,
-    //! or check probe-rs out inside that repository.
+    //! One case per operation, with the bytes the RL78/G15 actually exchanges. Section numbers
+    //! are to `g15_ocd_protocol_notes.md` in the rl78_debug_re repository, which also keeps the
+    //! full capture corpus and a runner that holds this codec to it.
     use super::*;
-    use std::path::PathBuf;
 
-    fn vectors_path() -> Option<PathBuf> {
-        let p = std::env::var_os("RL78_VECTORS")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../conformance/vectors.json")
-            });
-        p.exists().then_some(p)
-    }
-
-    fn hex(s: &str) -> Vec<u8> {
-        s.split_whitespace()
-            .map(|b| u8::from_str_radix(b, 16).unwrap())
-            .collect()
-    }
-
-    fn addr(v: &serde_json::Value) -> Option<u32> {
-        let s = v.as_str()?;
-        u32::from_str_radix(s.trim_end_matches(['H', 'h']), 16).ok()
-    }
-
-    fn op_for(semantic: &str) -> Option<Op> {
-        Some(match semantic {
-            "pb_mode_entry" => Op::PbModeEntry,
-            "pb_enter_ocd" => Op::PbEnterOcd,
-            "pb_codeflash_crc" => Op::PbCodeflashCrc,
-            "pb_dataflash_crc" => Op::PbDataflashCrc,
-            "pb_write_after_erase" => Op::PbWriteAfterErase,
-            "pb_write_after_erase_df" => Op::PbWriteAfterEraseDf,
-            "pb_data_group" => Op::PbDataGroup,
-            "pb_ack" => Op::PbAck,
-            "unlock_challenge" => Op::UnlockChallenge,
-            "unlock_security_id" => Op::UnlockSecurityId,
-            "set_addr_len" => Op::SetAddrLen,
-            "read" => Op::Read,
-            "write" => Op::Write,
-            "call_kernel" => Op::CallKernel,
-            "kernel_read_bytes" => Op::KernelReadBytes,
-            "kernel_read_words" => Op::KernelReadWords,
-            "kernel_flash_op" => Op::KernelFlashOp,
-            "execute" => Op::Execute,
-            // The corpus calls 00H in the OCD phase "halt_or_poke", because it is both.
-            "halt_or_poke" => Op::Halt,
-            _ => return None,
-        })
-    }
-
-    /// Recover the encoder's arguments from the observed request, as tools/mkvectors_c.py does.
-    fn args_for(op: Op, req: &[u8]) -> Args<'_> {
-        let mut a = Args::default();
-        match op {
-            Op::SetAddrLen => {
-                a.addr = ADDR16_BASE + (u32::from(req[1]) | u32::from(req[2]) << 8);
-                a.len = if req[3] == 0 { 256 } else { u16::from(req[3]) };
-            }
-            Op::Write => {
-                a.data = &req[1..];
-                a.len = (req.len() - 1) as u16;
-            }
-            Op::KernelReadBytes | Op::KernelReadWords | Op::KernelFlashOp => {
-                a.addr = u32::from(req[2]) | u32::from(req[3]) << 8 | u32::from(req[4]) << 16;
-                a.len = if req[5] == 0 { 256 } else { u16::from(req[5]) };
-            }
-            Op::Execute => a.regs = Sync::from_bytes(&req[1..]),
-            Op::UnlockSecurityId | Op::PbDataGroup => a.data = req,
-            _ => {}
-        }
-        a
-    }
-
-    #[test]
-    fn conformance_vectors() {
-        let Some(path) = vectors_path() else {
-            eprintln!("skipping: conformance/vectors.json not found; set RL78_VECTORS");
-            return;
-        };
-        let doc: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        let vectors = doc["vectors"].as_array().unwrap();
-
-        let (mut pass, mut observations) = (0, 0u64);
-        let mut failures = vec![];
-        for v in vectors {
-            let semantic = v["semantic"].as_str().unwrap();
-            let Some(op) = op_for(semantic) else {
-                failures.push(format!("{semantic}: no op"));
-                continue;
-            };
-            let st = &v["state"];
-            let mut state = State {
-                phase: if st["phase"] == "ocd" {
-                    Phase::Ocd
-                } else {
-                    Phase::ProtoB
-                },
-                locked: st["locked"].as_bool().unwrap_or(false),
-                addr: addr(&st["addr"]).map(|a| (a, st["len"].as_u64().unwrap() as u16)),
-                // Not recorded in the corpus; implied for the only op that needs it.
-                streaming: op == Op::PbDataGroup,
-                rrm_c: 0,
-            };
-            let req = hex(v["request"].as_str().unwrap());
-            let rsp = hex(v["response"].as_str().unwrap());
-            let args = args_for(op, &req);
-            let evidence = v["evidence"].as_str().unwrap();
-
-            let result = (|| {
-                let enc = state.encode(op, &args).map_err(|e| e.to_string())?;
-                if enc != req {
-                    return Err(format!("encoded {enc:02x?}, wire has {req:02x?}"));
-                }
-                let shape = state.response_shape(op, &args).map_err(|e| e.to_string())?;
-                if !(shape.min..=shape.max).contains(&rsp.len()) {
-                    return Err(format!("reply of {} outside {shape:?}", rsp.len()));
-                }
-                state
-                    .apply_response(op, &args, &rsp)
-                    .map_err(|e| e.to_string())?;
-                Ok(())
-            })();
-            match result {
-                Ok(()) => {
-                    pass += 1;
-                    observations += v["count"].as_u64().unwrap();
-                }
-                Err(e) => failures.push(format!("{semantic} ({evidence}): {e}")),
-            }
-        }
-        assert!(
-            failures.is_empty(),
-            "{} failures:\n{}",
-            failures.len(),
-            failures.join("\n")
-        );
-        assert_eq!(
-            pass, 1179,
-            "the corpus has changed size; update this count deliberately"
-        );
-        assert_eq!(observations, 24_760);
-    }
-
-    /// Properties the corpus cannot show, because a capture only contains things that happened.
-    #[test]
-    fn negative() {
-        let ocd = State {
+    fn ocd(locked: bool) -> State {
+        State {
             phase: Phase::Ocd,
+            locked,
             ..State::default()
-        };
-        let a = Args {
-            addr: 0xF_FFA4,
-            len: 1,
-            ..Args::default()
-        };
-        // A locked session cannot touch memory.
-        assert_eq!(
-            ocd.encode(Op::SetAddrLen, &a),
-            Err(CodecError::Locked("set_addr_len"))
-        );
+        }
+    }
 
-        let open = State {
-            locked: false,
-            ..ocd.clone()
-        };
-        // 56H cannot address below F0000H.
-        let low = Args {
-            addr: 0x0_0100,
-            ..a
-        };
-        assert_eq!(
-            open.encode(Op::SetAddrLen, &low),
-            Err(CodecError::Argument("set_addr_len"))
-        );
-        // 256 is 0 on the wire.
-        let full = Args {
-            addr: 0xF_0000,
-            len: 256,
-            ..a
-        };
-        assert_eq!(open.encode(Op::SetAddrLen, &full).unwrap()[3], 0);
-        // F-segment conversion: FFFA4H goes out as A4 FF.
-        assert_eq!(
-            open.encode(Op::SetAddrLen, &a).unwrap(),
-            [0x56, 0xA4, 0xFF, 1]
-        );
-
-        // An OCD op in the flash phase, and the reverse.
-        assert!(matches!(
-            State::new().encode(Op::UnlockChallenge, &a),
-            Err(CodecError::State(_))
-        ));
-        assert!(matches!(
-            ocd.encode(Op::PbCodeflashCrc, &a),
-            Err(CodecError::State(_))
-        ));
-
-        // 00H is mode entry in one phase and halt in the other.
-        assert_eq!(State::new().encode(Op::PbModeEntry, &a).unwrap(), [0x00]);
-        assert_eq!(ocd.encode(Op::Halt, &a).unwrap(), [0x00]);
-
-        // RRM commits are gated on the nibble counter.
-        let mut rrm = ocd.clone();
-        rrm.rrm_c = 3;
-        assert!(rrm.encode(Op::RrmReadByte, &a).is_err());
-        rrm.rrm_c = 4;
-        assert_eq!(rrm.encode(Op::RrmReadByte, &a).unwrap(), [0xD0]);
-        rrm.rrm_c = 7;
-        let nib = Args { nibble: 0xF, ..a };
-        assert_eq!(rrm.encode(Op::RrmWriteWord, &nib).unwrap(), [0x9F]);
-
-        // F3H is a rejection, not a protocol error, and leaves the session locked.
-        let mut s = ocd.clone();
-        let id = [0u8; 10];
-        let ida = Args {
-            data: &id,
-            ..Args::default()
-        };
-        assert_eq!(
-            s.apply_response(Op::UnlockSecurityId, &ida, &[0xF3]),
-            Err(CodecError::Rejected)
-        );
-        assert!(s.locked);
+    /// Encode, check the request, apply the reply, and return the decoded reply's sync and
+    /// payload.
+    fn exchange(
+        st: &mut State,
+        op: Op,
+        args: &Args,
+        request: &[u8],
+        reply: &[u8],
+    ) -> (Option<Sync>, Vec<u8>) {
+        assert_eq!(st.encode(op, args).unwrap(), request, "{}", op.name());
+        let shape = st.response_shape(op, args).unwrap();
         assert!(
-            s.apply_response(Op::UnlockSecurityId, &ida, &[0xF2])
-                .unwrap()
-                .unlocked
+            (shape.min..=shape.max).contains(&reply.len()),
+            "{}",
+            op.name()
         );
-        assert!(!s.locked);
+        let r = st.apply_response(op, args, reply).unwrap();
+        (r.sync, r.payload.to_vec())
+    }
 
-        // Execute re-locks, and a six-byte reply is a trap with the sync after the echo.
-        let r = s
-            .apply_response(Op::Execute, &Args::default(), &[0x38, 1, 2, 3, 4, 0])
-            .unwrap();
+    #[test]
+    fn enter_ocd_from_the_boot_rom() {
+        // CAH is the mode byte that selects the debugger. The five bytes are B, C, H and L at
+        // entry, then the 00H prompt (§16.2): zeros here only because those registers are zero.
+        let mut st = State::new();
+        let (sync, _) = exchange(
+            &mut st,
+            Op::PbEnterOcd,
+            &Args::default(),
+            &[0xCA],
+            &[1, 2, 3, 4, 0],
+        );
         assert_eq!(
-            r.sync,
+            sync,
             Some(Sync {
                 b: 1,
                 c: 2,
@@ -802,6 +604,300 @@ mod tests {
                 l: 4
             })
         );
-        assert!(s.locked);
+        assert_eq!(st.phase, Phase::Ocd);
+        assert!(st.locked);
+    }
+
+    #[test]
+    fn unlock() {
+        let mut st = ocd(true);
+        exchange(
+            &mut st,
+            Op::UnlockChallenge,
+            &Args::default(),
+            &[0x55],
+            &[0xF1],
+        );
+        let id = [0u8; SECURITY_ID_LEN];
+        let a = Args {
+            data: &id,
+            ..Args::default()
+        };
+        exchange(&mut st, Op::UnlockSecurityId, &a, &id, &[0xF2]);
+        assert!(!st.locked);
+
+        // F3H is a rejection, not a protocol error, and leaves the session locked.
+        let mut st = ocd(true);
+        assert_eq!(
+            st.apply_response(Op::UnlockSecurityId, &a, &[0xF3]),
+            Err(CodecError::Rejected)
+        );
+        assert!(st.locked);
+        // A challenge answered with anything but F1H is out of step.
+        assert!(
+            ocd(true)
+                .apply_response(Op::UnlockChallenge, &a, &[0x00])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn memory_is_addressed_in_the_f_segment() {
+        // 56H takes a 16-bit address meaning F0000H + x [arch:p29]: FFFA4H goes out as A4 FF.
+        let mut st = ocd(false);
+        let a = Args {
+            addr: 0xF_FFA4,
+            len: 1,
+            ..Args::default()
+        };
+        exchange(
+            &mut st,
+            Op::SetAddrLen,
+            &a,
+            &[0x56, 0xA4, 0xFF, 0x01],
+            &[0x00],
+        );
+        assert_eq!(st.addr, Some((0xF_FFA4, 1)));
+        let (_, data) = exchange(&mut st, Op::Read, &Args::default(), &[0x57], &[0x20]);
+        assert_eq!(data, [0x20]);
+
+        // 256 bytes encode as 0.
+        let a = Args {
+            addr: 0xF_FB00,
+            len: 256,
+            ..Args::default()
+        };
+        assert_eq!(
+            st.encode(Op::SetAddrLen, &a).unwrap(),
+            [0x56, 0x00, 0xFB, 0x00]
+        );
+
+        // Nothing below F0000H: that is what a routine staged in RAM is for.
+        let low = Args {
+            addr: 0x0_0100,
+            len: 4,
+            ..Args::default()
+        };
+        assert_eq!(
+            st.encode(Op::SetAddrLen, &low),
+            Err(CodecError::Argument("set_addr_len"))
+        );
+        // A locked session cannot touch memory at all.
+        assert_eq!(
+            ocd(true).encode(Op::SetAddrLen, &a),
+            Err(CodecError::Locked("set_addr_len"))
+        );
+    }
+
+    #[test]
+    fn write_needs_the_length_it_was_given() {
+        let mut st = ocd(false);
+        // Read and write carry no address; they need a 56H first.
+        assert_eq!(
+            st.encode(Op::Read, &Args::default()),
+            Err(CodecError::State("read"))
+        );
+        let a = Args {
+            addr: 0xF_0085,
+            len: 1,
+            ..Args::default()
+        };
+        exchange(
+            &mut st,
+            Op::SetAddrLen,
+            &a,
+            &[0x56, 0x85, 0x00, 0x01],
+            &[0x00],
+        );
+        let w = Args {
+            data: &[0x01],
+            ..Args::default()
+        };
+        exchange(&mut st, Op::Write, &w, &[0x58, 0x01], &[0x00]);
+        let w2 = Args {
+            data: &[0x01, 0x02],
+            ..Args::default()
+        };
+        assert_eq!(
+            st.encode(Op::Write, &w2),
+            Err(CodecError::Argument("write"))
+        );
+    }
+
+    #[test]
+    fn call_gate() {
+        // A bare 5BH is CALL !!0FFED0H; the reply is only the command loop's prompt (§12.3, §46).
+        let mut st = ocd(false);
+        exchange(&mut st, Op::CallKernel, &Args::default(), &[0x5B], &[0x00]);
+        assert!(
+            st.apply_response(Op::CallKernel, &Args::default(), &[0x01])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn execute_runs_or_traps() {
+        // 5CH loads B, C, H and L and returns from the interrupt (§18, §23).
+        let regs = Sync {
+            b: 0x00,
+            c: 0x00,
+            h: 0x08,
+            l: 0x38,
+        };
+        let a = Args {
+            regs,
+            ..Args::default()
+        };
+
+        // A free run is answered by the echo of L alone (§23.1's resume: 5C 00 00 08 38 -> 38).
+        let mut st = ocd(false);
+        let (sync, _) = exchange(
+            &mut st,
+            Op::Execute,
+            &a,
+            &[0x5C, 0x00, 0x00, 0x08, 0x38],
+            &[0x38],
+        );
+        assert_eq!(sync, None);
+        assert!(st.locked, "leaving the monitor locks the session");
+
+        // An armed single step traps at once: the echo, then the re-entry sync.
+        let mut st = ocd(false);
+        let (sync, _) = exchange(
+            &mut st,
+            Op::Execute,
+            &a,
+            &[0x5C, 0, 0, 8, 0x38],
+            &[0x38, 9, 8, 7, 6, 0],
+        );
+        assert_eq!(
+            sync,
+            Some(Sync {
+                b: 9,
+                c: 8,
+                h: 7,
+                l: 6
+            })
+        );
+    }
+
+    #[test]
+    fn halt() {
+        // A lone 00H halts a running target (§23.2, §28). Legal while locked: it doubles as the
+        // poke that wakes a monitor that has just re-entered.
+        let mut st = ocd(true);
+        let (sync, _) = exchange(
+            &mut st,
+            Op::Halt,
+            &Args::default(),
+            &[0x00],
+            &[0, 3, 0, 0, 0],
+        );
+        assert_eq!(
+            sync,
+            Some(Sync {
+                b: 0,
+                c: 3,
+                h: 0,
+                l: 0
+            })
+        );
+        assert!(
+            st.apply_response(Op::Halt, &Args::default(), &[0, 3, 0, 0, 1])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn the_same_byte_in_two_protocols() {
+        // 00H is Protocol B's mode entry in one phase and the debugger's halt in the other.
+        let a = Args::default();
+        assert_eq!(State::new().encode(Op::PbModeEntry, &a).unwrap(), [0x00]);
+        assert_eq!(ocd(true).encode(Op::Halt, &a).unwrap(), [0x00]);
+        assert!(matches!(
+            State::new().encode(Op::UnlockChallenge, &a),
+            Err(CodecError::State(_))
+        ));
+        assert!(matches!(
+            ocd(true).encode(Op::PbCodeflashCrc, &a),
+            Err(CodecError::State(_))
+        ));
+    }
+
+    #[test]
+    fn protocol_b_write_after_erase() {
+        // [proto_b]: 60H answers ACK and the flash size in 256-byte units, minus one (1FH: 8 KB),
+        // then four-byte groups follow with no opcode of their own.
+        let mut st = State::new();
+        exchange(&mut st, Op::PbModeEntry, &Args::default(), &[0x00], &[0x36]);
+        let group = [0xEA, 0x00, 0x00, 0xFB];
+        let g = Args {
+            data: &group,
+            ..Args::default()
+        };
+        assert!(matches!(
+            st.encode(Op::PbDataGroup, &g),
+            Err(CodecError::State(_))
+        ));
+        exchange(
+            &mut st,
+            Op::PbWriteAfterErase,
+            &Args::default(),
+            &[0x60],
+            &[0x06, 0x1F],
+        );
+        assert!(st.streaming);
+        exchange(&mut st, Op::PbDataGroup, &g, &group, &[0x06]);
+        // The last group also carries the write-complete.
+        exchange(&mut st, Op::PbDataGroup, &g, &group, &[0x06, 0x06]);
+    }
+
+    #[test]
+    fn vendor_kernel_reads() {
+        // Renesas's RAM kernel takes a true ES:addr16 and answers data then a 00H prompt (§11).
+        // Nothing drives it any more; the encoding is kept because the captures are full of it.
+        let mut st = ocd(false);
+        let a = Args {
+            addr: 0x0_00C4,
+            len: 10,
+            ..Args::default()
+        };
+        let mut reply = vec![0x11; 10];
+        reply.push(0x00);
+        let (_, data) = exchange(
+            &mut st,
+            Op::KernelReadBytes,
+            &a,
+            &[0x5B, 0x01, 0xC4, 0x00, 0x00, 0x0A],
+            &reply,
+        );
+        assert_eq!(data, [0x11; 10]);
+    }
+
+    #[test]
+    fn pseudo_rrm_commits_are_gated() {
+        // The nibble counter decides which commit is admissible (§30).
+        let a = Args::default();
+        let mut st = ocd(true);
+        for n in [0xF, 0xF, 0xB, 0x0] {
+            let a = Args {
+                nibble: n,
+                ..Args::default()
+            };
+            exchange(&mut st, Op::RrmAddrNibble, &a, &[0xA0 | n], &[0x00]);
+        }
+        assert_eq!(st.rrm_c, 4);
+        let (_, data) = exchange(&mut st, Op::RrmReadByte, &a, &[0xD0], &[0x42]);
+        assert_eq!(data, [0x42]);
+        assert_eq!(st.rrm_c, 0);
+        assert!(st.encode(Op::RrmReadByte, &a).is_err());
+
+        // The word write's low nibble is the fourth data nibble, not a sub-command.
+        st.rrm_c = 7;
+        let w = Args {
+            nibble: 0xF,
+            ..Args::default()
+        };
+        exchange(&mut st, Op::RrmWriteWord, &w, &[0x9F], &[0xDA]);
     }
 }
