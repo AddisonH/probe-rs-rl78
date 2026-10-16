@@ -34,9 +34,9 @@ fn test_register_write(_definition: &DutDefinition, core: &mut Core) -> TestResu
 
     let register = core.registers();
 
-    let mut test_value = 1;
+    let mut test_value: u64 = 1;
 
-    for register in register.core_registers() {
+    for (i, register) in register.core_registers().enumerate() {
         if core.architecture() == Architecture::Riscv {
             match register.name() {
                 // Hardwired to zero.
@@ -57,14 +57,26 @@ fn test_register_write(_definition: &DutDefinition, core: &mut Core) -> TestResu
             }
         }
 
+        let mut value = test_value;
+
+        if core.architecture() == Architecture::Rl78 {
+            match register.name() {
+                // The debug interrupt frame lives at SP, so SP cannot change while halted.
+                "sp" | "spl" | "sph" => continue,
+                _ => (),
+            }
+            // Most registers are 8 or 16 bits: keep the bit within the register.
+            value = 1 << (i % register.size_in_bits());
+        }
+
         // Write new value
 
-        core.write_core_reg(register, test_value)?;
+        core.write_core_reg(register, value)?;
 
         let readback: u64 = core.read_core_reg(register)?;
 
         assert_eq!(
-            test_value, readback,
+            value, readback,
             "Error writing register {register:?}, read value does not match written value."
         );
 

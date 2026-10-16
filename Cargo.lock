@@ -4257,6 +4257,7 @@ dependencies = [
  "nusb",
  "probe-rs",
  "probe-rs-espressif",
+ "probe-rs-rl78",
  "serde",
  "smoke_tester_macros",
  "toml",

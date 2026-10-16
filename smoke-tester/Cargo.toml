@@ -17,6 +17,7 @@ harness = false
 [dependencies]
 probe-rs.workspace = true
 probe-rs-espressif.workspace = true
+probe-rs-rl78.workspace = true
 
 anyhow = { version = "1.0" }
 serde = { version = "1", features = ["derive"] }
