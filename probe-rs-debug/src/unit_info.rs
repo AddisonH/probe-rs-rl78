@@ -1169,6 +1169,11 @@ impl UnitInfo {
                     // The address_index as an offset from 0, so just pass it into the next step.
                     evaluation.resume_with_relocated_address(address_index)?
                 }
+                // DWARF 5 `DW_OP_addrx`, which clang emits for every global.
+                EvaluationResult::RequiresIndexedAddress { index, .. } => {
+                    let address = debug_info.dwarf.address(&self.unit, index)?;
+                    evaluation.resume_with_indexed_address(address)?
+                }
                 EvaluationResult::RequiresCallFrameCfa => {
                     provide_cfa(frame_info.canonical_frame_address, &mut evaluation)?
                 }
@@ -1259,6 +1264,10 @@ impl UnitInfo {
                 } => provide_register(frame_info.registers, register, base_type, &mut evaluation)?,
                 EvaluationResult::RequiresRelocatedAddress(address_index) => {
                     evaluation.resume_with_relocated_address(address_index)?
+                }
+                EvaluationResult::RequiresIndexedAddress { index, .. } => {
+                    let address = debug_info.dwarf.address(&self.unit, index)?;
+                    evaluation.resume_with_indexed_address(address)?
                 }
                 EvaluationResult::RequiresCallFrameCfa => {
                     provide_cfa(frame_info.canonical_frame_address, &mut evaluation)?
@@ -2125,7 +2134,6 @@ fn unsupported_evaluation_result<R: gimli::Reader>(result: &EvaluationResult<R>)
         EvaluationResult::RequiresTls(_) => "DW_OP_form_tls_address",
         EvaluationResult::RequiresAtLocation(_) => "DW_OP_call",
         EvaluationResult::RequiresParameterRef(_) => "DW_OP_parameter_ref",
-        EvaluationResult::RequiresIndexedAddress { .. } => "an indexed address",
         EvaluationResult::RequiresBaseType(_) => "a typed DWARF value",
         EvaluationResult::RequiresEntryValue(_) => "DW_OP_entry_value",
         _ => "this DWARF evaluation request",

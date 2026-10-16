@@ -13,6 +13,41 @@ use std::fmt::{Display, Write};
 #[derive(Debug, Clone)]
 pub struct C;
 
+/// The names GCC and clang give the unsigned integer base types. GCC writes `short unsigned int`
+/// where clang writes `unsigned short`.
+fn is_unsigned_integer(name: &str) -> bool {
+    matches!(
+        name,
+        "unsigned char"
+            | "unsigned int"
+            | "short unsigned int"
+            | "long unsigned int"
+            | "long long unsigned int"
+            | "unsigned short"
+            | "unsigned long"
+            | "unsigned long long"
+    )
+}
+
+/// The names GCC and clang give the signed integer base types.
+fn is_signed_integer(name: &str) -> bool {
+    matches!(
+        name,
+        "signed char"
+            | "int"
+            | "short int"
+            | "long int"
+            | "long long int"
+            | "signed int"
+            | "short signed int"
+            | "long signed int"
+            | "long long signed int"
+            | "short"
+            | "long"
+            | "long long"
+    )
+}
+
 impl ProgrammingLanguage for C {
     fn read_variable_value(
         &self,
@@ -27,22 +62,10 @@ impl ProgrammingLanguage for C {
                 "_Bool" => UnsignedInt::get_value(variable, None, memory, variable_cache).into(),
                 "char" => CChar::get_value(variable, memory, variable_cache).into(),
 
-                "unsigned char"
-                | "unsigned int"
-                | "short unsigned int"
-                | "long unsigned int"
-                | "long long unsigned int" => {
+                name if is_unsigned_integer(name) => {
                     UnsignedInt::get_value(variable, None, memory, variable_cache).into()
                 }
-                "signed char"
-                | "int"
-                | "short int"
-                | "long int"
-                | "long long int"
-                | "signed int"
-                | "short signed int"
-                | "long signed int"
-                | "long long signed int" => {
+                name if is_signed_integer(name) => {
                     SignedInt::get_value(variable, None, memory, variable_cache).into()
                 }
 
@@ -93,22 +116,10 @@ impl ProgrammingLanguage for C {
             VariableType::Base(name) => match name.as_str() {
                 "_Bool" => UnsignedInt::update_value(variable, None, memory, new_value),
                 "char" => CChar::update_value(variable, memory, new_value),
-                "unsigned char"
-                | "unsigned int"
-                | "short unsigned int"
-                | "long unsigned int"
-                | "long long unsigned int" => {
+                name if is_unsigned_integer(name) => {
                     UnsignedInt::update_value(variable, None, memory, new_value)
                 }
-                "signed char"
-                | "int"
-                | "short int"
-                | "long int"
-                | "long long int"
-                | "signed int"
-                | "short signed int"
-                | "long signed int"
-                | "long long signed int" => {
+                name if is_signed_integer(name) => {
                     SignedInt::update_value(variable, None, memory, new_value)
                 }
                 "float" => f32::update_value(variable, memory, new_value),
