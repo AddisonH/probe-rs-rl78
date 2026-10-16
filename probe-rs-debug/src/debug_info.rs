@@ -787,6 +787,11 @@ impl DebugInfo {
 
             // PART 2-b: Unwind registers for the "previous/calling" frame.
             let mut dwarf_cfi_fallback = false;
+            // An architecture without a return address register can name the program counter
+            // itself as the CIE's return address column, as RL78 does (and GCC's AVR and MSP430
+            // ports): the rule for that column then recovers the return address, from the stack.
+            let pc_is_return_column = callee_frame_registers.get_return_address().is_none();
+            let mut pc_column_return_address = None;
             for debug_register in unwind_registers.0.iter_mut() {
                 // The program counter is handled later.
                 if debug_register
@@ -801,6 +806,37 @@ impl DebugInfo {
                         );
                         dwarf_cfi_fallback = true;
                         break;
+                    }
+                    if pc_is_return_column && debug_register.dwarf_id == Some(cie_return_address.0)
+                    {
+                        pc_column_return_address = Some(
+                            if matches!(register_rule, RegisterRule::Undefined) {
+                                (None, ReturnAddressSource::Undefined)
+                            } else {
+                                match unwind_register(
+                                    debug_register,
+                                    &callee_frame_registers,
+                                    unwind_info,
+                                    cfa,
+                                    memory,
+                                    exception_handler,
+                                ) {
+                                    Ok(DwarfUnwind::Value(value)) => {
+                                        (value, ReturnAddressSource::Register)
+                                    }
+                                    Ok(DwarfUnwind::UnsupportedCfi) => {
+                                        dwarf_cfi_fallback = true;
+                                        break;
+                                    }
+                                    Err(error) => {
+                                        tracing::warn!(
+                                            "Failed to unwind the return address for frame at {frame_pc:#010x}: {error}"
+                                        );
+                                        (None, ReturnAddressSource::Undefined)
+                                    }
+                                }
+                            },
+                        );
                     }
                     continue;
                 }
@@ -870,6 +906,9 @@ impl DebugInfo {
             if unwind_registers
                 .get_return_address()
                 .is_some_and(|ra| ra.value.is_some())
+                || pc_column_return_address
+                    .as_ref()
+                    .is_some_and(|(value, _)| value.is_some())
             {
                 match exception_handler.exception_details(memory, &unwind_registers, self) {
                     Ok(Some(exception_info)) => {
@@ -909,13 +948,16 @@ impl DebugInfo {
                 };
             }
 
-            let (unwound_return_address, return_address_source) = caller_return_address(
-                &callee_frame_registers,
-                &unwind_registers,
-                unwind_info,
-                cie_return_address,
-                exception_handler.return_address_recovery(),
-            );
+            let (unwound_return_address, return_address_source) = match pc_column_return_address {
+                Some(return_address) => return_address,
+                None => caller_return_address(
+                    &callee_frame_registers,
+                    &unwind_registers,
+                    unwind_info,
+                    cie_return_address,
+                    exception_handler.return_address_recovery(),
+                ),
+            };
 
             // DWARF 6.4.4: no rule for the return address means the frame has no caller. The
             // innermost frame is exempt, because a leaf function keeps its return address live in
@@ -1672,6 +1714,14 @@ pub fn unwind_program_counter_register(
                     Some(RegisterValue::U32(return_address - 4)),
                     "PC=(unwound x1 - 4) (dwarf Undefined)",
                 ),
+                // `CALL` fills the low three bytes of its four-byte slot and leaves the top byte as
+                // it was [g15:p706]. Back up by one into the call, as for the other architectures.
+                Some(InstructionSet::Rl78) => (
+                    Some(RegisterValue::U32(
+                        (return_address & 0xF_FFFF).wrapping_sub(1),
+                    )),
+                    "PC=(unwound PC[19:0] - 1)",
+                ),
                 Some(InstructionSet::Xtensa) => {
                     let upper_bits = (current_pc as u32) & 0xC000_0000;
                     (
@@ -2319,6 +2369,8 @@ mod test {
     #[test_case("esp32s3_coredump_elf"; "Unwind using an Xtensa coredump in ELF format")]
     #[test_case("async_esp32s3"; "Unwind an async embassy task on an ESP32-S3")]
     #[test_case("async_esp32c6"; "Unwind an async embassy task on an ESP32-C6")]
+    #[test_case("R5F12068_fib"; "RL78 recursion on an R5F12068")]
+    #[test_case("R5F12068_interrupt"; "RL78 interrupt handler on an R5F12068")]
     fn full_unwind(test_name: &str) {
         let debug_info =
             load_test_elf_as_debug_info(format!("debug-unwind-tests/{test_name}.elf").as_str());
@@ -2476,6 +2528,7 @@ mod test {
     #[test_case("RP2040_full_unwind"; "Armv6-m using RP2040")]
     #[test_case("nRF52833_xxAA_full_unwind"; "Armv7-m using nRF52833_xxAA")]
     #[test_case("atsamd51p19a"; "Armv7-em from C source code")]
+    #[test_case("R5F12068_fib"; "RL78 using R5F12068")]
     // TODO:  #[test_case("esp32c3"; "RISC-V32E using esp32c3")]
     fn static_variables(chip_name: &str) {
         // TODO: Add RISC-V tests.

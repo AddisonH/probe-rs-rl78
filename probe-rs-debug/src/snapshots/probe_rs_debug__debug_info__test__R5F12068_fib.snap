@@ -1,0 +1,4669 @@
+---
+source: probe-rs-debug/src/debug_info.rs
+expression: stack_frames
+---
+- function_name: fib
+  source_location:
+    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    line: 40
+    column:
+      Column: 10
+    address: 2077
+  registers:
+    - core_register:
+        id: 35
+        roles:
+          - Core: pc
+          - ProgramCounter
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 37
+      value:
+        U32: 2077
+    - core_register:
+        id: 288
+        roles:
+          - Core: sp
+          - StackPointer
+          - FramePointer
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 32
+      value:
+        U32: 1048008
+    - core_register:
+        id: 32
+        roles:
+          - Core: psw
+          - ProcessorStatus
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 70
+    - core_register:
+        id: 33
+        roles:
+          - Core: es
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 34
+        roles:
+          - Core: cs
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 256
+        roles:
+          - Core: ax
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 38
+      value:
+        U32: 1
+    - core_register:
+        id: 257
+        roles:
+          - Core: bc
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 39
+      value:
+        U32: 12
+    - core_register:
+        id: 258
+        roles:
+          - Core: de
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 40
+      value:
+        U32: 8
+    - core_register:
+        id: 259
+        roles:
+          - Core: hl
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 41
+      value:
+        U32: 2048
+    - core_register:
+        id: 272
+        roles:
+          - Core: x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 46
+      value:
+        U32: 1
+    - core_register:
+        id: 273
+        roles:
+          - Core: a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 47
+      value:
+        U32: 0
+    - core_register:
+        id: 274
+        roles:
+          - Core: c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 48
+      value:
+        U32: 12
+    - core_register:
+        id: 275
+        roles:
+          - Core: b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 49
+      value:
+        U32: 0
+    - core_register:
+        id: 276
+        roles:
+          - Core: e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 50
+      value:
+        U32: 8
+    - core_register:
+        id: 277
+        roles:
+          - Core: d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 51
+      value:
+        U32: 0
+    - core_register:
+        id: 278
+        roles:
+          - Core: l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 52
+      value:
+        U32: 0
+    - core_register:
+        id: 279
+        roles:
+          - Core: h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 53
+      value:
+        U32: 8
+    - core_register:
+        id: 0
+        roles:
+          - Core: rb0_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 1
+    - core_register:
+        id: 1
+        roles:
+          - Core: rb0_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 2
+        roles:
+          - Core: rb0_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 12
+    - core_register:
+        id: 3
+        roles:
+          - Core: rb0_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 4
+        roles:
+          - Core: rb0_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 8
+    - core_register:
+        id: 5
+        roles:
+          - Core: rb0_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 6
+        roles:
+          - Core: rb0_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 7
+        roles:
+          - Core: rb0_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 8
+    - core_register:
+        id: 8
+        roles:
+          - Core: rb1_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 9
+        roles:
+          - Core: rb1_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 10
+        roles:
+          - Core: rb1_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 11
+        roles:
+          - Core: rb1_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 12
+        roles:
+          - Core: rb1_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 13
+        roles:
+          - Core: rb1_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 14
+        roles:
+          - Core: rb1_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 15
+        roles:
+          - Core: rb1_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 16
+        roles:
+          - Core: rb2_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 17
+        roles:
+          - Core: rb2_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 18
+        roles:
+          - Core: rb2_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 19
+        roles:
+          - Core: rb2_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 20
+        roles:
+          - Core: rb2_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 21
+        roles:
+          - Core: rb2_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 22
+        roles:
+          - Core: rb2_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 23
+        roles:
+          - Core: rb2_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 24
+        roles:
+          - Core: rb3_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 25
+        roles:
+          - Core: rb3_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 26
+        roles:
+          - Core: rb3_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 27
+        roles:
+          - Core: rb3_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 28
+        roles:
+          - Core: rb3_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 29
+        roles:
+          - Core: rb3_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 30
+        roles:
+          - Core: rb3_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 31
+        roles:
+          - Core: rb3_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 36
+        roles:
+          - Core: spl
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 200
+    - core_register:
+        id: 37
+        roles:
+          - Core: sph
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 253
+    - core_register:
+        id: 38
+        roles:
+          - Core: pmc
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+    - core_register:
+        id: 39
+        roles:
+          - Core: mem
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value:
+        U32: 0
+  pc:
+    U32: 2077
+  frame_base: 1048008
+  is_inlined: false
+  local_variables:
+    Child Variables:
+      name: LocalScopeRoot
+      type_name: Unknown
+      value: "<unknown> { n = 1 }"
+      children:
+        - name:
+            Named: n
+          type_name:
+            Modified:
+              - Typedef: uint8_t
+              - Modified:
+                  - Typedef: __uint8_t
+                  - Base: unsigned char
+          value: "1"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 37
+            column: ~
+            address: ~
+  canonical_frame_address: 1048018
+- function_name: fib
+  source_location:
+    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    line: 41
+    column:
+      Column: 9
+    address: 2088
+  registers:
+    - core_register:
+        id: 35
+        roles:
+          - Core: pc
+          - ProgramCounter
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 37
+      value:
+        U32: 2090
+    - core_register:
+        id: 288
+        roles:
+          - Core: sp
+          - StackPointer
+          - FramePointer
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 32
+      value:
+        U32: 1048018
+    - core_register:
+        id: 32
+        roles:
+          - Core: psw
+          - ProcessorStatus
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 33
+        roles:
+          - Core: es
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 34
+        roles:
+          - Core: cs
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 256
+        roles:
+          - Core: ax
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 38
+      value: ~
+    - core_register:
+        id: 257
+        roles:
+          - Core: bc
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 39
+      value: ~
+    - core_register:
+        id: 258
+        roles:
+          - Core: de
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 40
+      value: ~
+    - core_register:
+        id: 259
+        roles:
+          - Core: hl
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 41
+      value: ~
+    - core_register:
+        id: 272
+        roles:
+          - Core: x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 46
+      value: ~
+    - core_register:
+        id: 273
+        roles:
+          - Core: a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 47
+      value: ~
+    - core_register:
+        id: 274
+        roles:
+          - Core: c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 48
+      value: ~
+    - core_register:
+        id: 275
+        roles:
+          - Core: b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 49
+      value: ~
+    - core_register:
+        id: 276
+        roles:
+          - Core: e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 50
+      value: ~
+    - core_register:
+        id: 277
+        roles:
+          - Core: d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 51
+      value: ~
+    - core_register:
+        id: 278
+        roles:
+          - Core: l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 52
+      value: ~
+    - core_register:
+        id: 279
+        roles:
+          - Core: h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 53
+      value: ~
+    - core_register:
+        id: 0
+        roles:
+          - Core: rb0_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 1
+        roles:
+          - Core: rb0_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 2
+        roles:
+          - Core: rb0_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 3
+        roles:
+          - Core: rb0_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 4
+        roles:
+          - Core: rb0_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 5
+        roles:
+          - Core: rb0_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 6
+        roles:
+          - Core: rb0_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 7
+        roles:
+          - Core: rb0_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 8
+        roles:
+          - Core: rb1_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 9
+        roles:
+          - Core: rb1_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 10
+        roles:
+          - Core: rb1_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 11
+        roles:
+          - Core: rb1_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 12
+        roles:
+          - Core: rb1_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 13
+        roles:
+          - Core: rb1_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 14
+        roles:
+          - Core: rb1_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 15
+        roles:
+          - Core: rb1_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 16
+        roles:
+          - Core: rb2_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 17
+        roles:
+          - Core: rb2_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 18
+        roles:
+          - Core: rb2_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 19
+        roles:
+          - Core: rb2_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 20
+        roles:
+          - Core: rb2_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 21
+        roles:
+          - Core: rb2_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 22
+        roles:
+          - Core: rb2_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 23
+        roles:
+          - Core: rb2_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 24
+        roles:
+          - Core: rb3_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 25
+        roles:
+          - Core: rb3_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 26
+        roles:
+          - Core: rb3_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 27
+        roles:
+          - Core: rb3_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 28
+        roles:
+          - Core: rb3_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 29
+        roles:
+          - Core: rb3_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 30
+        roles:
+          - Core: rb3_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 31
+        roles:
+          - Core: rb3_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 36
+        roles:
+          - Core: spl
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 37
+        roles:
+          - Core: sph
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 38
+        roles:
+          - Core: pmc
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 39
+        roles:
+          - Core: mem
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+  pc:
+    U32: 2090
+  frame_base: 1048018
+  is_inlined: false
+  local_variables:
+    Child Variables:
+      name: LocalScopeRoot
+      type_name: Unknown
+      value: "<unknown> { n = 2 }"
+      children:
+        - name:
+            Named: n
+          type_name:
+            Modified:
+              - Typedef: uint8_t
+              - Modified:
+                  - Typedef: __uint8_t
+                  - Base: unsigned char
+          value: "2"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 37
+            column: ~
+            address: ~
+  canonical_frame_address: 1048028
+- function_name: fib
+  source_location:
+    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    line: 41
+    column:
+      Column: 9
+    address: 2088
+  registers:
+    - core_register:
+        id: 35
+        roles:
+          - Core: pc
+          - ProgramCounter
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 37
+      value:
+        U32: 2090
+    - core_register:
+        id: 288
+        roles:
+          - Core: sp
+          - StackPointer
+          - FramePointer
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 32
+      value:
+        U32: 1048028
+    - core_register:
+        id: 32
+        roles:
+          - Core: psw
+          - ProcessorStatus
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 33
+        roles:
+          - Core: es
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 34
+        roles:
+          - Core: cs
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 256
+        roles:
+          - Core: ax
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 38
+      value: ~
+    - core_register:
+        id: 257
+        roles:
+          - Core: bc
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 39
+      value: ~
+    - core_register:
+        id: 258
+        roles:
+          - Core: de
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 40
+      value: ~
+    - core_register:
+        id: 259
+        roles:
+          - Core: hl
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 41
+      value: ~
+    - core_register:
+        id: 272
+        roles:
+          - Core: x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 46
+      value: ~
+    - core_register:
+        id: 273
+        roles:
+          - Core: a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 47
+      value: ~
+    - core_register:
+        id: 274
+        roles:
+          - Core: c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 48
+      value: ~
+    - core_register:
+        id: 275
+        roles:
+          - Core: b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 49
+      value: ~
+    - core_register:
+        id: 276
+        roles:
+          - Core: e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 50
+      value: ~
+    - core_register:
+        id: 277
+        roles:
+          - Core: d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 51
+      value: ~
+    - core_register:
+        id: 278
+        roles:
+          - Core: l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 52
+      value: ~
+    - core_register:
+        id: 279
+        roles:
+          - Core: h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 53
+      value: ~
+    - core_register:
+        id: 0
+        roles:
+          - Core: rb0_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 1
+        roles:
+          - Core: rb0_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 2
+        roles:
+          - Core: rb0_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 3
+        roles:
+          - Core: rb0_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 4
+        roles:
+          - Core: rb0_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 5
+        roles:
+          - Core: rb0_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 6
+        roles:
+          - Core: rb0_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 7
+        roles:
+          - Core: rb0_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 8
+        roles:
+          - Core: rb1_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 9
+        roles:
+          - Core: rb1_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 10
+        roles:
+          - Core: rb1_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 11
+        roles:
+          - Core: rb1_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 12
+        roles:
+          - Core: rb1_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 13
+        roles:
+          - Core: rb1_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 14
+        roles:
+          - Core: rb1_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 15
+        roles:
+          - Core: rb1_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 16
+        roles:
+          - Core: rb2_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 17
+        roles:
+          - Core: rb2_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 18
+        roles:
+          - Core: rb2_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 19
+        roles:
+          - Core: rb2_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 20
+        roles:
+          - Core: rb2_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 21
+        roles:
+          - Core: rb2_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 22
+        roles:
+          - Core: rb2_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 23
+        roles:
+          - Core: rb2_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 24
+        roles:
+          - Core: rb3_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 25
+        roles:
+          - Core: rb3_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 26
+        roles:
+          - Core: rb3_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 27
+        roles:
+          - Core: rb3_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 28
+        roles:
+          - Core: rb3_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 29
+        roles:
+          - Core: rb3_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 30
+        roles:
+          - Core: rb3_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 31
+        roles:
+          - Core: rb3_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 36
+        roles:
+          - Core: spl
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 37
+        roles:
+          - Core: sph
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 38
+        roles:
+          - Core: pmc
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 39
+        roles:
+          - Core: mem
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+  pc:
+    U32: 2090
+  frame_base: 1048028
+  is_inlined: false
+  local_variables:
+    Child Variables:
+      name: LocalScopeRoot
+      type_name: Unknown
+      value: "<unknown> { n = 3 }"
+      children:
+        - name:
+            Named: n
+          type_name:
+            Modified:
+              - Typedef: uint8_t
+              - Modified:
+                  - Typedef: __uint8_t
+                  - Base: unsigned char
+          value: "3"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 37
+            column: ~
+            address: ~
+  canonical_frame_address: 1048038
+- function_name: fib
+  source_location:
+    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    line: 41
+    column:
+      Column: 9
+    address: 2088
+  registers:
+    - core_register:
+        id: 35
+        roles:
+          - Core: pc
+          - ProgramCounter
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 37
+      value:
+        U32: 2090
+    - core_register:
+        id: 288
+        roles:
+          - Core: sp
+          - StackPointer
+          - FramePointer
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 32
+      value:
+        U32: 1048038
+    - core_register:
+        id: 32
+        roles:
+          - Core: psw
+          - ProcessorStatus
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 33
+        roles:
+          - Core: es
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 34
+        roles:
+          - Core: cs
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 256
+        roles:
+          - Core: ax
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 38
+      value: ~
+    - core_register:
+        id: 257
+        roles:
+          - Core: bc
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 39
+      value: ~
+    - core_register:
+        id: 258
+        roles:
+          - Core: de
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 40
+      value: ~
+    - core_register:
+        id: 259
+        roles:
+          - Core: hl
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 41
+      value: ~
+    - core_register:
+        id: 272
+        roles:
+          - Core: x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 46
+      value: ~
+    - core_register:
+        id: 273
+        roles:
+          - Core: a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 47
+      value: ~
+    - core_register:
+        id: 274
+        roles:
+          - Core: c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 48
+      value: ~
+    - core_register:
+        id: 275
+        roles:
+          - Core: b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 49
+      value: ~
+    - core_register:
+        id: 276
+        roles:
+          - Core: e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 50
+      value: ~
+    - core_register:
+        id: 277
+        roles:
+          - Core: d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 51
+      value: ~
+    - core_register:
+        id: 278
+        roles:
+          - Core: l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 52
+      value: ~
+    - core_register:
+        id: 279
+        roles:
+          - Core: h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 53
+      value: ~
+    - core_register:
+        id: 0
+        roles:
+          - Core: rb0_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 1
+        roles:
+          - Core: rb0_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 2
+        roles:
+          - Core: rb0_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 3
+        roles:
+          - Core: rb0_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 4
+        roles:
+          - Core: rb0_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 5
+        roles:
+          - Core: rb0_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 6
+        roles:
+          - Core: rb0_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 7
+        roles:
+          - Core: rb0_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 8
+        roles:
+          - Core: rb1_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 9
+        roles:
+          - Core: rb1_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 10
+        roles:
+          - Core: rb1_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 11
+        roles:
+          - Core: rb1_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 12
+        roles:
+          - Core: rb1_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 13
+        roles:
+          - Core: rb1_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 14
+        roles:
+          - Core: rb1_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 15
+        roles:
+          - Core: rb1_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 16
+        roles:
+          - Core: rb2_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 17
+        roles:
+          - Core: rb2_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 18
+        roles:
+          - Core: rb2_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 19
+        roles:
+          - Core: rb2_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 20
+        roles:
+          - Core: rb2_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 21
+        roles:
+          - Core: rb2_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 22
+        roles:
+          - Core: rb2_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 23
+        roles:
+          - Core: rb2_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 24
+        roles:
+          - Core: rb3_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 25
+        roles:
+          - Core: rb3_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 26
+        roles:
+          - Core: rb3_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 27
+        roles:
+          - Core: rb3_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 28
+        roles:
+          - Core: rb3_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 29
+        roles:
+          - Core: rb3_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 30
+        roles:
+          - Core: rb3_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 31
+        roles:
+          - Core: rb3_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 36
+        roles:
+          - Core: spl
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 37
+        roles:
+          - Core: sph
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 38
+        roles:
+          - Core: pmc
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 39
+        roles:
+          - Core: mem
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+  pc:
+    U32: 2090
+  frame_base: 1048038
+  is_inlined: false
+  local_variables:
+    Child Variables:
+      name: LocalScopeRoot
+      type_name: Unknown
+      value: "<unknown> { n = 4 }"
+      children:
+        - name:
+            Named: n
+          type_name:
+            Modified:
+              - Typedef: uint8_t
+              - Modified:
+                  - Typedef: __uint8_t
+                  - Base: unsigned char
+          value: "4"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 37
+            column: ~
+            address: ~
+  canonical_frame_address: 1048048
+- function_name: fib
+  source_location:
+    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    line: 41
+    column:
+      Column: 9
+    address: 2088
+  registers:
+    - core_register:
+        id: 35
+        roles:
+          - Core: pc
+          - ProgramCounter
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 37
+      value:
+        U32: 2090
+    - core_register:
+        id: 288
+        roles:
+          - Core: sp
+          - StackPointer
+          - FramePointer
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 32
+      value:
+        U32: 1048048
+    - core_register:
+        id: 32
+        roles:
+          - Core: psw
+          - ProcessorStatus
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 33
+        roles:
+          - Core: es
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 34
+        roles:
+          - Core: cs
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 256
+        roles:
+          - Core: ax
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 38
+      value: ~
+    - core_register:
+        id: 257
+        roles:
+          - Core: bc
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 39
+      value: ~
+    - core_register:
+        id: 258
+        roles:
+          - Core: de
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 40
+      value: ~
+    - core_register:
+        id: 259
+        roles:
+          - Core: hl
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 41
+      value: ~
+    - core_register:
+        id: 272
+        roles:
+          - Core: x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 46
+      value: ~
+    - core_register:
+        id: 273
+        roles:
+          - Core: a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 47
+      value: ~
+    - core_register:
+        id: 274
+        roles:
+          - Core: c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 48
+      value: ~
+    - core_register:
+        id: 275
+        roles:
+          - Core: b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 49
+      value: ~
+    - core_register:
+        id: 276
+        roles:
+          - Core: e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 50
+      value: ~
+    - core_register:
+        id: 277
+        roles:
+          - Core: d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 51
+      value: ~
+    - core_register:
+        id: 278
+        roles:
+          - Core: l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 52
+      value: ~
+    - core_register:
+        id: 279
+        roles:
+          - Core: h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 53
+      value: ~
+    - core_register:
+        id: 0
+        roles:
+          - Core: rb0_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 1
+        roles:
+          - Core: rb0_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 2
+        roles:
+          - Core: rb0_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 3
+        roles:
+          - Core: rb0_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 4
+        roles:
+          - Core: rb0_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 5
+        roles:
+          - Core: rb0_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 6
+        roles:
+          - Core: rb0_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 7
+        roles:
+          - Core: rb0_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 8
+        roles:
+          - Core: rb1_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 9
+        roles:
+          - Core: rb1_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 10
+        roles:
+          - Core: rb1_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 11
+        roles:
+          - Core: rb1_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 12
+        roles:
+          - Core: rb1_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 13
+        roles:
+          - Core: rb1_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 14
+        roles:
+          - Core: rb1_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 15
+        roles:
+          - Core: rb1_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 16
+        roles:
+          - Core: rb2_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 17
+        roles:
+          - Core: rb2_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 18
+        roles:
+          - Core: rb2_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 19
+        roles:
+          - Core: rb2_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 20
+        roles:
+          - Core: rb2_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 21
+        roles:
+          - Core: rb2_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 22
+        roles:
+          - Core: rb2_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 23
+        roles:
+          - Core: rb2_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 24
+        roles:
+          - Core: rb3_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 25
+        roles:
+          - Core: rb3_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 26
+        roles:
+          - Core: rb3_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 27
+        roles:
+          - Core: rb3_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 28
+        roles:
+          - Core: rb3_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 29
+        roles:
+          - Core: rb3_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 30
+        roles:
+          - Core: rb3_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 31
+        roles:
+          - Core: rb3_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 36
+        roles:
+          - Core: spl
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 37
+        roles:
+          - Core: sph
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 38
+        roles:
+          - Core: pmc
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 39
+        roles:
+          - Core: mem
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+  pc:
+    U32: 2090
+  frame_base: 1048048
+  is_inlined: false
+  local_variables:
+    Child Variables:
+      name: LocalScopeRoot
+      type_name: Unknown
+      value: "<unknown> { n = 5 }"
+      children:
+        - name:
+            Named: n
+          type_name:
+            Modified:
+              - Typedef: uint8_t
+              - Modified:
+                  - Typedef: __uint8_t
+                  - Base: unsigned char
+          value: "5"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 37
+            column: ~
+            address: ~
+  canonical_frame_address: 1048058
+- function_name: fib
+  source_location:
+    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    line: 41
+    column:
+      Column: 9
+    address: 2088
+  registers:
+    - core_register:
+        id: 35
+        roles:
+          - Core: pc
+          - ProgramCounter
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 37
+      value:
+        U32: 2090
+    - core_register:
+        id: 288
+        roles:
+          - Core: sp
+          - StackPointer
+          - FramePointer
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 32
+      value:
+        U32: 1048058
+    - core_register:
+        id: 32
+        roles:
+          - Core: psw
+          - ProcessorStatus
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 33
+        roles:
+          - Core: es
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 34
+        roles:
+          - Core: cs
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 256
+        roles:
+          - Core: ax
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 38
+      value: ~
+    - core_register:
+        id: 257
+        roles:
+          - Core: bc
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 39
+      value: ~
+    - core_register:
+        id: 258
+        roles:
+          - Core: de
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 40
+      value: ~
+    - core_register:
+        id: 259
+        roles:
+          - Core: hl
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 41
+      value: ~
+    - core_register:
+        id: 272
+        roles:
+          - Core: x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 46
+      value: ~
+    - core_register:
+        id: 273
+        roles:
+          - Core: a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 47
+      value: ~
+    - core_register:
+        id: 274
+        roles:
+          - Core: c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 48
+      value: ~
+    - core_register:
+        id: 275
+        roles:
+          - Core: b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 49
+      value: ~
+    - core_register:
+        id: 276
+        roles:
+          - Core: e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 50
+      value: ~
+    - core_register:
+        id: 277
+        roles:
+          - Core: d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 51
+      value: ~
+    - core_register:
+        id: 278
+        roles:
+          - Core: l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 52
+      value: ~
+    - core_register:
+        id: 279
+        roles:
+          - Core: h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 53
+      value: ~
+    - core_register:
+        id: 0
+        roles:
+          - Core: rb0_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 1
+        roles:
+          - Core: rb0_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 2
+        roles:
+          - Core: rb0_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 3
+        roles:
+          - Core: rb0_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 4
+        roles:
+          - Core: rb0_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 5
+        roles:
+          - Core: rb0_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 6
+        roles:
+          - Core: rb0_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 7
+        roles:
+          - Core: rb0_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 8
+        roles:
+          - Core: rb1_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 9
+        roles:
+          - Core: rb1_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 10
+        roles:
+          - Core: rb1_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 11
+        roles:
+          - Core: rb1_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 12
+        roles:
+          - Core: rb1_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 13
+        roles:
+          - Core: rb1_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 14
+        roles:
+          - Core: rb1_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 15
+        roles:
+          - Core: rb1_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 16
+        roles:
+          - Core: rb2_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 17
+        roles:
+          - Core: rb2_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 18
+        roles:
+          - Core: rb2_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 19
+        roles:
+          - Core: rb2_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 20
+        roles:
+          - Core: rb2_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 21
+        roles:
+          - Core: rb2_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 22
+        roles:
+          - Core: rb2_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 23
+        roles:
+          - Core: rb2_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 24
+        roles:
+          - Core: rb3_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 25
+        roles:
+          - Core: rb3_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 26
+        roles:
+          - Core: rb3_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 27
+        roles:
+          - Core: rb3_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 28
+        roles:
+          - Core: rb3_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 29
+        roles:
+          - Core: rb3_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 30
+        roles:
+          - Core: rb3_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 31
+        roles:
+          - Core: rb3_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 36
+        roles:
+          - Core: spl
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 37
+        roles:
+          - Core: sph
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 38
+        roles:
+          - Core: pmc
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 39
+        roles:
+          - Core: mem
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+  pc:
+    U32: 2090
+  frame_base: 1048058
+  is_inlined: false
+  local_variables:
+    Child Variables:
+      name: LocalScopeRoot
+      type_name: Unknown
+      value: "<unknown> { n = 6 }"
+      children:
+        - name:
+            Named: n
+          type_name:
+            Modified:
+              - Typedef: uint8_t
+              - Modified:
+                  - Typedef: __uint8_t
+                  - Base: unsigned char
+          value: "6"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 37
+            column: ~
+            address: ~
+  canonical_frame_address: 1048068
+- function_name: fib
+  source_location:
+    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    line: 41
+    column:
+      Column: 9
+    address: 2088
+  registers:
+    - core_register:
+        id: 35
+        roles:
+          - Core: pc
+          - ProgramCounter
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 37
+      value:
+        U32: 2090
+    - core_register:
+        id: 288
+        roles:
+          - Core: sp
+          - StackPointer
+          - FramePointer
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 32
+      value:
+        U32: 1048068
+    - core_register:
+        id: 32
+        roles:
+          - Core: psw
+          - ProcessorStatus
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 33
+        roles:
+          - Core: es
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 34
+        roles:
+          - Core: cs
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 256
+        roles:
+          - Core: ax
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 38
+      value: ~
+    - core_register:
+        id: 257
+        roles:
+          - Core: bc
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 39
+      value: ~
+    - core_register:
+        id: 258
+        roles:
+          - Core: de
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 40
+      value: ~
+    - core_register:
+        id: 259
+        roles:
+          - Core: hl
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 41
+      value: ~
+    - core_register:
+        id: 272
+        roles:
+          - Core: x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 46
+      value: ~
+    - core_register:
+        id: 273
+        roles:
+          - Core: a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 47
+      value: ~
+    - core_register:
+        id: 274
+        roles:
+          - Core: c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 48
+      value: ~
+    - core_register:
+        id: 275
+        roles:
+          - Core: b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 49
+      value: ~
+    - core_register:
+        id: 276
+        roles:
+          - Core: e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 50
+      value: ~
+    - core_register:
+        id: 277
+        roles:
+          - Core: d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 51
+      value: ~
+    - core_register:
+        id: 278
+        roles:
+          - Core: l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 52
+      value: ~
+    - core_register:
+        id: 279
+        roles:
+          - Core: h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 53
+      value: ~
+    - core_register:
+        id: 0
+        roles:
+          - Core: rb0_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 1
+        roles:
+          - Core: rb0_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 2
+        roles:
+          - Core: rb0_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 3
+        roles:
+          - Core: rb0_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 4
+        roles:
+          - Core: rb0_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 5
+        roles:
+          - Core: rb0_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 6
+        roles:
+          - Core: rb0_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 7
+        roles:
+          - Core: rb0_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 8
+        roles:
+          - Core: rb1_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 9
+        roles:
+          - Core: rb1_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 10
+        roles:
+          - Core: rb1_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 11
+        roles:
+          - Core: rb1_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 12
+        roles:
+          - Core: rb1_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 13
+        roles:
+          - Core: rb1_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 14
+        roles:
+          - Core: rb1_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 15
+        roles:
+          - Core: rb1_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 16
+        roles:
+          - Core: rb2_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 17
+        roles:
+          - Core: rb2_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 18
+        roles:
+          - Core: rb2_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 19
+        roles:
+          - Core: rb2_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 20
+        roles:
+          - Core: rb2_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 21
+        roles:
+          - Core: rb2_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 22
+        roles:
+          - Core: rb2_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 23
+        roles:
+          - Core: rb2_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 24
+        roles:
+          - Core: rb3_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 25
+        roles:
+          - Core: rb3_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 26
+        roles:
+          - Core: rb3_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 27
+        roles:
+          - Core: rb3_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 28
+        roles:
+          - Core: rb3_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 29
+        roles:
+          - Core: rb3_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 30
+        roles:
+          - Core: rb3_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 31
+        roles:
+          - Core: rb3_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 36
+        roles:
+          - Core: spl
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 37
+        roles:
+          - Core: sph
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 38
+        roles:
+          - Core: pmc
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 39
+        roles:
+          - Core: mem
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+  pc:
+    U32: 2090
+  frame_base: 1048068
+  is_inlined: false
+  local_variables:
+    Child Variables:
+      name: LocalScopeRoot
+      type_name: Unknown
+      value: "<unknown> { n = 7 }"
+      children:
+        - name:
+            Named: n
+          type_name:
+            Modified:
+              - Typedef: uint8_t
+              - Modified:
+                  - Typedef: __uint8_t
+                  - Base: unsigned char
+          value: "7"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 37
+            column: ~
+            address: ~
+  canonical_frame_address: 1048078
+- function_name: main
+  source_location:
+    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    line: 82
+    column:
+      Column: 18
+    address: 2275
+  registers:
+    - core_register:
+        id: 35
+        roles:
+          - Core: pc
+          - ProgramCounter
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 37
+      value:
+        U32: 2277
+    - core_register:
+        id: 288
+        roles:
+          - Core: sp
+          - StackPointer
+          - FramePointer
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 32
+      value:
+        U32: 1048078
+    - core_register:
+        id: 32
+        roles:
+          - Core: psw
+          - ProcessorStatus
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 33
+        roles:
+          - Core: es
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 34
+        roles:
+          - Core: cs
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 256
+        roles:
+          - Core: ax
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 38
+      value: ~
+    - core_register:
+        id: 257
+        roles:
+          - Core: bc
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 39
+      value: ~
+    - core_register:
+        id: 258
+        roles:
+          - Core: de
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 40
+      value: ~
+    - core_register:
+        id: 259
+        roles:
+          - Core: hl
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 41
+      value: ~
+    - core_register:
+        id: 272
+        roles:
+          - Core: x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 46
+      value: ~
+    - core_register:
+        id: 273
+        roles:
+          - Core: a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 47
+      value: ~
+    - core_register:
+        id: 274
+        roles:
+          - Core: c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 48
+      value: ~
+    - core_register:
+        id: 275
+        roles:
+          - Core: b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 49
+      value: ~
+    - core_register:
+        id: 276
+        roles:
+          - Core: e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 50
+      value: ~
+    - core_register:
+        id: 277
+        roles:
+          - Core: d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 51
+      value: ~
+    - core_register:
+        id: 278
+        roles:
+          - Core: l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 52
+      value: ~
+    - core_register:
+        id: 279
+        roles:
+          - Core: h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 53
+      value: ~
+    - core_register:
+        id: 0
+        roles:
+          - Core: rb0_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 1
+        roles:
+          - Core: rb0_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 2
+        roles:
+          - Core: rb0_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 3
+        roles:
+          - Core: rb0_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 4
+        roles:
+          - Core: rb0_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 5
+        roles:
+          - Core: rb0_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 6
+        roles:
+          - Core: rb0_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 7
+        roles:
+          - Core: rb0_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 8
+        roles:
+          - Core: rb1_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 9
+        roles:
+          - Core: rb1_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 10
+        roles:
+          - Core: rb1_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 11
+        roles:
+          - Core: rb1_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 12
+        roles:
+          - Core: rb1_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 13
+        roles:
+          - Core: rb1_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 14
+        roles:
+          - Core: rb1_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 15
+        roles:
+          - Core: rb1_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 16
+        roles:
+          - Core: rb2_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 17
+        roles:
+          - Core: rb2_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 18
+        roles:
+          - Core: rb2_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 19
+        roles:
+          - Core: rb2_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 20
+        roles:
+          - Core: rb2_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 21
+        roles:
+          - Core: rb2_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 22
+        roles:
+          - Core: rb2_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 23
+        roles:
+          - Core: rb2_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 24
+        roles:
+          - Core: rb3_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 25
+        roles:
+          - Core: rb3_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 26
+        roles:
+          - Core: rb3_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 27
+        roles:
+          - Core: rb3_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 28
+        roles:
+          - Core: rb3_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 29
+        roles:
+          - Core: rb3_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 30
+        roles:
+          - Core: rb3_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 31
+        roles:
+          - Core: rb3_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 36
+        roles:
+          - Core: spl
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 37
+        roles:
+          - Core: sph
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 38
+        roles:
+          - Core: pmc
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 39
+        roles:
+          - Core: mem
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+  pc:
+    U32: 2277
+  frame_base: 1048078
+  is_inlined: false
+  local_variables:
+    Child Variables:
+      name: LocalScopeRoot
+      type_name: Unknown
+      value: "<unknown> { last = 18, i = 7 }"
+      children:
+        - name:
+            Named: last
+          type_name:
+            Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+          value: "18"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 85
+            column: ~
+            address: ~
+        - name:
+            Named: i
+          type_name:
+            Modified:
+              - Typedef: uint8_t
+              - Modified:
+                  - Typedef: __uint8_t
+                  - Base: unsigned char
+          value: "7"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 81
+            column: ~
+            address: ~
+  canonical_frame_address: 1048090
+- function_name: __start
+  source_location:
+    path: /home/addison/.cache/claude-scratch/rl-rs/pico-ml/../../../../workspace/rl-rs/picolibc/picocrt/machine/rl78/../../crt0.h
+    line: 169
+    column:
+      Column: 15
+    address: 2555
+  registers:
+    - core_register:
+        id: 35
+        roles:
+          - Core: pc
+          - ProgramCounter
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 37
+      value:
+        U32: 2559
+    - core_register:
+        id: 288
+        roles:
+          - Core: sp
+          - StackPointer
+          - FramePointer
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 32
+      value:
+        U32: 1048090
+    - core_register:
+        id: 32
+        roles:
+          - Core: psw
+          - ProcessorStatus
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 33
+        roles:
+          - Core: es
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 34
+        roles:
+          - Core: cs
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 256
+        roles:
+          - Core: ax
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 38
+      value: ~
+    - core_register:
+        id: 257
+        roles:
+          - Core: bc
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 39
+      value: ~
+    - core_register:
+        id: 258
+        roles:
+          - Core: de
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 40
+      value: ~
+    - core_register:
+        id: 259
+        roles:
+          - Core: hl
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 41
+      value: ~
+    - core_register:
+        id: 272
+        roles:
+          - Core: x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 46
+      value: ~
+    - core_register:
+        id: 273
+        roles:
+          - Core: a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 47
+      value: ~
+    - core_register:
+        id: 274
+        roles:
+          - Core: c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 48
+      value: ~
+    - core_register:
+        id: 275
+        roles:
+          - Core: b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 49
+      value: ~
+    - core_register:
+        id: 276
+        roles:
+          - Core: e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 50
+      value: ~
+    - core_register:
+        id: 277
+        roles:
+          - Core: d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 51
+      value: ~
+    - core_register:
+        id: 278
+        roles:
+          - Core: l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 52
+      value: ~
+    - core_register:
+        id: 279
+        roles:
+          - Core: h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 53
+      value: ~
+    - core_register:
+        id: 0
+        roles:
+          - Core: rb0_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 1
+        roles:
+          - Core: rb0_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 2
+        roles:
+          - Core: rb0_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 3
+        roles:
+          - Core: rb0_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 4
+        roles:
+          - Core: rb0_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 5
+        roles:
+          - Core: rb0_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 6
+        roles:
+          - Core: rb0_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 7
+        roles:
+          - Core: rb0_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 8
+        roles:
+          - Core: rb1_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 9
+        roles:
+          - Core: rb1_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 10
+        roles:
+          - Core: rb1_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 11
+        roles:
+          - Core: rb1_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 12
+        roles:
+          - Core: rb1_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 13
+        roles:
+          - Core: rb1_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 14
+        roles:
+          - Core: rb1_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 15
+        roles:
+          - Core: rb1_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 16
+        roles:
+          - Core: rb2_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 17
+        roles:
+          - Core: rb2_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 18
+        roles:
+          - Core: rb2_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 19
+        roles:
+          - Core: rb2_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 20
+        roles:
+          - Core: rb2_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 21
+        roles:
+          - Core: rb2_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 22
+        roles:
+          - Core: rb2_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 23
+        roles:
+          - Core: rb2_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 24
+        roles:
+          - Core: rb3_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 25
+        roles:
+          - Core: rb3_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 26
+        roles:
+          - Core: rb3_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 27
+        roles:
+          - Core: rb3_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 28
+        roles:
+          - Core: rb3_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 29
+        roles:
+          - Core: rb3_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 30
+        roles:
+          - Core: rb3_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 31
+        roles:
+          - Core: rb3_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 36
+        roles:
+          - Core: spl
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 37
+        roles:
+          - Core: sph
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 38
+        roles:
+          - Core: pmc
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 39
+        roles:
+          - Core: mem
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+  pc:
+    U32: 2559
+  frame_base: 1048090
+  is_inlined: true
+  local_variables:
+    Child Variables:
+      name: LocalScopeRoot
+      type_name: Unknown
+      value: "<unknown>"
+  canonical_frame_address: 1048096
+- function_name: _cstart
+  source_location:
+    path: /home/addison/.cache/claude-scratch/rl-rs/pico-ml/../../../../workspace/rl-rs/picolibc/picocrt/machine/rl78/crt0.c
+    line: 144
+    column:
+      Column: 5
+    address: 2493
+  registers:
+    - core_register:
+        id: 35
+        roles:
+          - Core: pc
+          - ProgramCounter
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 37
+      value:
+        U32: 2559
+    - core_register:
+        id: 288
+        roles:
+          - Core: sp
+          - StackPointer
+          - FramePointer
+        data_type:
+          UnsignedInteger: 32
+      dwarf_id: 32
+      value:
+        U32: 1048090
+    - core_register:
+        id: 32
+        roles:
+          - Core: psw
+          - ProcessorStatus
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 33
+        roles:
+          - Core: es
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 34
+        roles:
+          - Core: cs
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 256
+        roles:
+          - Core: ax
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 38
+      value: ~
+    - core_register:
+        id: 257
+        roles:
+          - Core: bc
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 39
+      value: ~
+    - core_register:
+        id: 258
+        roles:
+          - Core: de
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 40
+      value: ~
+    - core_register:
+        id: 259
+        roles:
+          - Core: hl
+        data_type:
+          UnsignedInteger: 16
+      dwarf_id: 41
+      value: ~
+    - core_register:
+        id: 272
+        roles:
+          - Core: x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 46
+      value: ~
+    - core_register:
+        id: 273
+        roles:
+          - Core: a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 47
+      value: ~
+    - core_register:
+        id: 274
+        roles:
+          - Core: c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 48
+      value: ~
+    - core_register:
+        id: 275
+        roles:
+          - Core: b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 49
+      value: ~
+    - core_register:
+        id: 276
+        roles:
+          - Core: e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 50
+      value: ~
+    - core_register:
+        id: 277
+        roles:
+          - Core: d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 51
+      value: ~
+    - core_register:
+        id: 278
+        roles:
+          - Core: l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 52
+      value: ~
+    - core_register:
+        id: 279
+        roles:
+          - Core: h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: 53
+      value: ~
+    - core_register:
+        id: 0
+        roles:
+          - Core: rb0_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 1
+        roles:
+          - Core: rb0_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 2
+        roles:
+          - Core: rb0_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 3
+        roles:
+          - Core: rb0_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 4
+        roles:
+          - Core: rb0_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 5
+        roles:
+          - Core: rb0_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 6
+        roles:
+          - Core: rb0_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 7
+        roles:
+          - Core: rb0_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 8
+        roles:
+          - Core: rb1_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 9
+        roles:
+          - Core: rb1_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 10
+        roles:
+          - Core: rb1_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 11
+        roles:
+          - Core: rb1_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 12
+        roles:
+          - Core: rb1_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 13
+        roles:
+          - Core: rb1_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 14
+        roles:
+          - Core: rb1_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 15
+        roles:
+          - Core: rb1_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 16
+        roles:
+          - Core: rb2_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 17
+        roles:
+          - Core: rb2_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 18
+        roles:
+          - Core: rb2_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 19
+        roles:
+          - Core: rb2_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 20
+        roles:
+          - Core: rb2_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 21
+        roles:
+          - Core: rb2_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 22
+        roles:
+          - Core: rb2_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 23
+        roles:
+          - Core: rb2_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 24
+        roles:
+          - Core: rb3_x
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 25
+        roles:
+          - Core: rb3_a
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 26
+        roles:
+          - Core: rb3_c
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 27
+        roles:
+          - Core: rb3_b
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 28
+        roles:
+          - Core: rb3_e
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 29
+        roles:
+          - Core: rb3_d
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 30
+        roles:
+          - Core: rb3_l
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 31
+        roles:
+          - Core: rb3_h
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 36
+        roles:
+          - Core: spl
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 37
+        roles:
+          - Core: sph
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 38
+        roles:
+          - Core: pmc
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+    - core_register:
+        id: 39
+        roles:
+          - Core: mem
+        data_type:
+          UnsignedInteger: 8
+      dwarf_id: ~
+      value: ~
+  pc:
+    U32: 2493
+  frame_base: 1048090
+  is_inlined: false
+  local_variables:
+    Child Variables:
+      name: LocalScopeRoot
+      type_name: Unknown
+      value: "<unknown>"
+  canonical_frame_address: 1048096

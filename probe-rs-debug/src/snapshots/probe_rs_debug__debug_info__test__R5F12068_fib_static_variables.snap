@@ -1,0 +1,284 @@
+---
+source: probe-rs-debug/src/debug_info.rs
+expression: static_variables
+---
+Child Variables:
+  name: StaticScopeRoot
+  type_name: Unknown
+  value: "<unknown> { led = blinker @ 0x000FFB00, timer_ticks = 0, uint16_t[8] = [0, 1, 1, 2, 3, 5, 8, 0] }"
+  children:
+    - name:
+        Named: led
+      type_name:
+        Struct:
+          ident: blinker
+          namespace: []
+          args: []
+      value: blinker @ 0x000FFB00
+      source_location:
+        path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+        line: 30
+        column: ~
+        address: ~
+      children:
+        - name:
+            Named: period
+          type_name:
+            Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+          value: "25"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 24
+            column: ~
+            address: ~
+        - name:
+            Named: count
+          type_name:
+            Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+          value: "0"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 25
+            column: ~
+            address: ~
+        - name:
+            Named: state
+          type_name:
+            Enum:
+              ident: led_state
+              namespace: []
+              args: []
+          value: LED_OFF
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 26
+            column: ~
+            address: ~
+        - name:
+            Named: history
+          type_name:
+            Array:
+              item_type_name:
+                Modified:
+                  - Typedef: uint8_t
+                  - Modified:
+                      - Typedef: __uint8_t
+                      - Base: unsigned char
+              count: 4
+          value: "uint8_t[4] = [0, 0, 0, 0]"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 27
+            column: ~
+            address: ~
+          children:
+            - name:
+                Indexed: 0
+              type_name:
+                Modified:
+                  - Typedef: uint8_t
+                  - Modified:
+                      - Typedef: __uint8_t
+                      - Base: unsigned char
+              value: "0"
+              source_location:
+                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                line: 27
+                column: ~
+                address: ~
+            - name:
+                Indexed: 1
+              type_name:
+                Modified:
+                  - Typedef: uint8_t
+                  - Modified:
+                      - Typedef: __uint8_t
+                      - Base: unsigned char
+              value: "0"
+              source_location:
+                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                line: 27
+                column: ~
+                address: ~
+            - name:
+                Indexed: 2
+              type_name:
+                Modified:
+                  - Typedef: uint8_t
+                  - Modified:
+                      - Typedef: __uint8_t
+                      - Base: unsigned char
+              value: "0"
+              source_location:
+                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                line: 27
+                column: ~
+                address: ~
+            - name:
+                Indexed: 3
+              type_name:
+                Modified:
+                  - Typedef: uint8_t
+                  - Modified:
+                      - Typedef: __uint8_t
+                      - Base: unsigned char
+              value: "0"
+              source_location:
+                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                line: 27
+                column: ~
+                address: ~
+    - name:
+        Named: timer_ticks
+      type_name:
+        Modified:
+          - Volatile
+          - Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+      value: "0"
+      source_location:
+        path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+        line: 31
+        column: ~
+        address: ~
+    - name:
+        Named: fib_table
+      type_name:
+        Array:
+          item_type_name:
+            Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+          count: 8
+      value: "uint16_t[8] = [0, 1, 1, 2, 3, 5, 8, 0]"
+      source_location:
+        path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+        line: 32
+        column: ~
+        address: ~
+      children:
+        - name:
+            Indexed: 0
+          type_name:
+            Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+          value: "0"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 32
+            column: ~
+            address: ~
+        - name:
+            Indexed: 1
+          type_name:
+            Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+          value: "1"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 32
+            column: ~
+            address: ~
+        - name:
+            Indexed: 2
+          type_name:
+            Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+          value: "1"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 32
+            column: ~
+            address: ~
+        - name:
+            Indexed: 3
+          type_name:
+            Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+          value: "2"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 32
+            column: ~
+            address: ~
+        - name:
+            Indexed: 4
+          type_name:
+            Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+          value: "3"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 32
+            column: ~
+            address: ~
+        - name:
+            Indexed: 5
+          type_name:
+            Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+          value: "5"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 32
+            column: ~
+            address: ~
+        - name:
+            Indexed: 6
+          type_name:
+            Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+          value: "8"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 32
+            column: ~
+            address: ~
+        - name:
+            Indexed: 7
+          type_name:
+            Modified:
+              - Typedef: uint16_t
+              - Modified:
+                  - Typedef: __uint16_t
+                  - Base: unsigned short
+          value: "0"
+          source_location:
+            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            line: 32
+            column: ~
+            address: ~
