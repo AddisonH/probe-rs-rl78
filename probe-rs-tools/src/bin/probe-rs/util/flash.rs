@@ -15,7 +15,7 @@ use parking_lot::Mutex;
 use probe_rs::InstructionSet;
 use probe_rs::flashing::{
     BinLoader, BinOptions, ElfLoader, ElfOptions, FlashError, FlashProgress, HexLoader,
-    ImageLoader, Uf2Loader,
+    ImageLoader, SrecLoader, Uf2Loader,
 };
 use probe_rs::{
     Session, Target,
@@ -168,6 +168,7 @@ fn format_options_image_loader(options: &FormatOptions, target: &Target) -> Box<
         })),
 
         FormatKind::Hex => Box::new(HexLoader),
+        FormatKind::Srec => Box::new(SrecLoader),
         FormatKind::Elf => Box::new(ElfLoader(ElfOptions {
             skip_sections: options.elf_options.skip_section.clone(),
         })),

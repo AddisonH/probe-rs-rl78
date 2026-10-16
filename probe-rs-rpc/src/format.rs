@@ -165,6 +165,10 @@ pub enum FormatKind {
     Idf,
 
     Uf2,
+
+    /// Motorola S-records, the default output of Renesas's CC-RL and e2 studio.
+    #[cfg_attr(feature = "clap", value(aliases(["mot", "s19", "s28", "s37"])))]
+    Srec,
 }
 
 impl FormatKind {
@@ -177,6 +181,7 @@ impl FormatKind {
                 "elf" => Ok(Self::Elf),
                 "idf" | "esp-idf" | "espidf" => Ok(Self::Idf),
                 "uf2" => Ok(Self::Uf2),
+                "srec" | "mot" | "s19" | "s28" | "s37" => Ok(Self::Srec),
                 _ => Err(format!("invalid variant: {format}")),
             },
             None => Ok(Self::Elf),
