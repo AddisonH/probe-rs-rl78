@@ -26,6 +26,17 @@ pub fn erase_all(
 ) -> Result<(), FlashError> {
     tracing::debug!("Erasing all...");
 
+    // A host-side flash sequence erases the chip itself: there is no algorithm to load.
+    if let Some(sequence) = session.target().debug_sequence.debug_flash_sequence() {
+        let failed = |e| FlashError::ChipEraseFailed {
+            source: Box::new(e),
+        };
+        sequence.prepare_flash(session).map_err(failed)?;
+        sequence.erase_all(session).map_err(failed)?;
+        sequence.finish_flash(session).map_err(failed)?;
+        return Ok(());
+    }
+
     // TODO: this first loop is pretty much identical to FlashLoader::prepare_plan - can we simplify?
 
     let mut algos = Vec::<FlasherWithRegions>::new();
@@ -289,24 +300,45 @@ pub fn erase(
             Vec::new()
         };
 
-        flasher.run_erase(session, progress, |active, _| {
+        if let Some(sequence) = session.target().debug_sequence.debug_flash_sequence() {
+            // A host-side flash sequence erases sectors itself: there is no algorithm to load.
+            let failed = |sector_address| {
+                move |e| FlashError::EraseFailed {
+                    sector_address,
+                    source: Box::new(e),
+                }
+            };
+            sequence
+                .prepare_flash(session)
+                .map_err(failed(address_start))?;
             for info in &sectors {
-                tracing::debug!(
-                    "    sector: {:#010x}-{:#010x} ({} bytes)",
-                    info.base_address,
-                    info.base_address + info.size,
-                    info.size
-                );
-
-                let sector = FlashSector {
-                    address: info.base_address,
-                    size: info.size,
-                };
-
-                active.erase_sector(&sector)?;
+                sequence
+                    .erase_sector(session, info.base_address)
+                    .map_err(failed(info.base_address))?;
             }
-            Ok(())
-        })?;
+            sequence
+                .finish_flash(session)
+                .map_err(failed(address_start))?;
+        } else {
+            flasher.run_erase(session, progress, |active, _| {
+                for info in &sectors {
+                    tracing::debug!(
+                        "    sector: {:#010x}-{:#010x} ({} bytes)",
+                        info.base_address,
+                        info.base_address + info.size,
+                        info.size
+                    );
+
+                    let sector = FlashSector {
+                        address: info.base_address,
+                        size: info.size,
+                    };
+
+                    active.erase_sector(&sector)?;
+                }
+                Ok(())
+            })?;
+        }
 
         if !restore_data.is_empty() {
             let mut loader = session.target().flash_loader();
