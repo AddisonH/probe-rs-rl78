@@ -215,6 +215,10 @@ impl Rl78Uart for Ft232r {
         self.ctrl(SIO_SET_DATA, LINE_8O2 | if low { LINE_BREAK } else { 0 })
     }
 
+    fn buffered(&self) -> usize {
+        self.rx.len()
+    }
+
     fn flush_input(&mut self) -> Result<(), Rl78Error> {
         let mut dropped = std::mem::take(&mut self.rx).len();
         // A quiet bridge answers with status-only packets; stop at the first.

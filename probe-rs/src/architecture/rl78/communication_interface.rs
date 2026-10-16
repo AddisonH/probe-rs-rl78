@@ -182,6 +182,31 @@ pub enum Rrm {
     Stopped(Sync),
 }
 
+/// What may follow a pseudo-RRM reply when the target has stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Trailing {
+    /// The reply is predictable: a stopped target's sync would not match it.
+    Known,
+    /// A data reply: look at what has already arrived behind it.
+    Buffered,
+    /// A data reply that ends an access: wait a USB frame for anything behind it.
+    Wait,
+}
+
+/// The first sync in what a stopped target sent. After the stop the stream is whole 5-byte syncs
+/// (the stop's, then one per command a locked monitor received), unless the read before took the
+/// first byte for data: then it is four bytes short, and `last_data` was that byte.
+fn first_sync(stream: &[u8], last_data: Option<u8>) -> Option<Sync> {
+    let sync: Vec<u8> = match (stream.len() % SYNC_LEN, last_data) {
+        (0, _) if !stream.is_empty() => stream[..SYNC_LEN].to_vec(),
+        (4, Some(first)) => std::iter::once(first)
+            .chain(stream[..4].iter().copied())
+            .collect(),
+        _ => return None,
+    };
+    (sync[SYNC_LEN - 1] == 0x00).then(|| Sync::from_bytes(&sync))
+}
+
 /// A byte pipe to the target's TOOL0 line, plus control of RESET.
 ///
 /// The UART runs at 115200 baud, 8 data bits, odd parity, 2 stop bits. Implementations must not
@@ -206,6 +231,12 @@ pub trait Rl78Uart: Send + fmt::Debug {
 
     /// Discard anything received so far.
     fn flush_input(&mut self) -> Result<(), Rl78Error>;
+
+    /// How many received bytes are waiting, without asking the transport for more: free, where
+    /// [`read`](Self::read) with no timeout costs a USB transfer.
+    fn buffered(&self) -> usize {
+        0
+    }
 }
 
 /// Reset timing, measured on the RL78/G15 FPB. The settle is not padding: the FT232R ships
@@ -233,6 +264,8 @@ pub struct UartOcd<L> {
     link: L,
     state: protocol::State,
     security_id: [u8; SECURITY_ID_LEN],
+    /// The last pseudo-RRM data reply: if the target had stopped, it was the sync's first byte.
+    rrm_last_data: Option<u8>,
 }
 
 impl<L: fmt::Debug> fmt::Debug for UartOcd<L> {
@@ -252,6 +285,7 @@ impl<L: Rl78Uart> UartOcd<L> {
             link,
             state: protocol::State::new(),
             security_id,
+            rrm_last_data: None,
         }
     }
 
@@ -342,7 +376,7 @@ impl<L: Rl78Uart> UartOcd<L> {
         op: Op,
         nibble: u8,
         expect: impl FnOnce(u8) -> bool,
-        data_reply: bool,
+        trailing: Trailing,
     ) -> Result<Result<u8, Sync>, Rl78Error> {
         let args = Args {
             nibble,
@@ -357,17 +391,26 @@ impl<L: Rl78Uart> UartOcd<L> {
                 e => e,
             });
         }
-        let mut more = [0u8; SYNC_LEN];
-        let extra = if data_reply {
-            self.link.read(&mut more, Duration::ZERO)?
-        } else {
-            0
+        let behind = match trailing {
+            Trailing::Known => false,
+            Trailing::Buffered => self.link.buffered() > 0,
+            Trailing::Wait => {
+                let mut more = [0u8; SYNC_LEN];
+                let n = self.link.read(&mut more, Duration::ZERO)?;
+                self.rrm_last_data = Some(reply[0]);
+                if n > 0 {
+                    let mut got = vec![reply[0]];
+                    got.extend_from_slice(&more[..n]);
+                    return Ok(Err(self.rrm_stopped(got)?));
+                }
+                false
+            }
         };
-        if extra > 0 || !expect(reply[0]) {
-            let mut got = vec![reply[0]];
-            got.extend_from_slice(&more[..extra]);
-            return Ok(Err(self.rrm_stopped(got)?));
+        if behind || !expect(reply[0]) {
+            return Ok(Err(self.rrm_stopped(vec![reply[0]])?));
         }
+        // Only the command right after a data reply can find that reply was a sync's first byte.
+        self.rrm_last_data = (trailing != Trailing::Known).then_some(reply[0]);
         self.state.apply_response(op, &args, &reply)?;
         Ok(Ok(reply[0]))
     }
@@ -377,20 +420,21 @@ impl<L: Rl78Uart> UartOcd<L> {
     /// answers each with the sync again (§16.2); the first is the one with the program's B, C,
     /// H and L.
     fn rrm_stopped(&mut self, mut got: Vec<u8>) -> Result<Sync, Rl78Error> {
-        if got.len() < SYNC_LEN {
-            let have = got.len();
-            got.resize(SYNC_LEN, 0);
-            self.read_exact(&mut got[have..], "sync after pseudo-RRM", REPLY_TIMEOUT)?;
-        }
+        // Everything the target sends now is whole syncs: let it finish.
         let mut drain = [0u8; 64];
-        while self.link.read(&mut drain, T_RRM_DRAIN)? > 0 {}
-        if got[SYNC_LEN - 1] != 0x00 {
-            return Err(CodecError::Protocol("sync after pseudo-RRM").into());
+        loop {
+            let n = self.link.read(&mut drain, T_RRM_DRAIN)?;
+            if n == 0 {
+                break;
+            }
+            got.extend_from_slice(&drain[..n]);
         }
+        let last_data = self.rrm_last_data.take();
         self.state.locked = true;
         self.state.rrm_c = 0;
-        tracing::debug!("rl78: the target stopped during pseudo-RRM");
-        Ok(Sync::from_bytes(&got))
+        tracing::debug!("rl78: the target stopped during pseudo-RRM: {got:02x?}");
+        first_sync(&got, last_data)
+            .ok_or_else(|| CodecError::Protocol("sync after pseudo-RRM").into())
     }
 
     /// Bring the ROM's counter back to zero after a command went unanswered: `D0H` reads (and
@@ -410,7 +454,9 @@ impl<L: Rl78Uart> UartOcd<L> {
             let nibble = (address >> (4 * k)) as u8 & 0x0F;
             let low = (address >> (4 * k)) as u8;
             let expect = move |r: u8| if k == 3 { r & 0x0F == nibble } else { r == low };
-            if let Err(sync) = self.rrm_command(Op::RrmAddrNibble, nibble, expect, false)? {
+            if let Err(sync) =
+                self.rrm_command(Op::RrmAddrNibble, nibble, expect, Trailing::Known)?
+            {
                 return Ok(Some(sync));
             }
         }
@@ -422,7 +468,9 @@ impl<L: Rl78Uart> UartOcd<L> {
         for &nibble in nibbles {
             let c = self.state.rrm_c + 1;
             let expect = move |r: u8| r == nibble << 4 | c;
-            if let Err(sync) = self.rrm_command(Op::RrmDataNibble, nibble, expect, false)? {
+            if let Err(sync) =
+                self.rrm_command(Op::RrmDataNibble, nibble, expect, Trailing::Known)?
+            {
                 return Ok(Some(sync));
             }
         }
@@ -446,11 +494,19 @@ impl<L: Rl78Uart> UartOcd<L> {
         }
     }
 
-    fn rrm_read_byte(&mut self, address: u16) -> Result<Result<u8, Sync>, Rl78Error> {
+    fn rrm_read_byte(&mut self, address: u16, last: bool) -> Result<Result<u8, Sync>, Rl78Error> {
         if let Some(sync) = self.rrm_address(address)? {
             return Ok(Err(sync));
         }
-        self.rrm_command(Op::RrmReadByte, 0, |_| true, true)
+        // A sync behind the reply means the target had stopped and the "data" is its first
+        // byte. Looking for it costs a USB frame; it is only worth that on an access's last
+        // byte, since a stop before any other shows in the next command's reply.
+        let trailing = if last {
+            Trailing::Wait
+        } else {
+            Trailing::Buffered
+        };
+        self.rrm_command(Op::RrmReadByte, 0, |_| true, trailing)
     }
 
     /// One byte, or an aligned pair as a word: n1 n2 are the high byte and n3 n4 the low, and
@@ -473,7 +529,7 @@ impl<L: Rl78Uart> UartOcd<L> {
             return Ok(Err(sync));
         }
         Ok(self
-            .rrm_command(commit, nibble, |r| r == ack, false)?
+            .rrm_command(commit, nibble, |r| r == ack, Trailing::Known)?
             .map(|_| ()))
     }
 
@@ -534,9 +590,10 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 
     fn rrm_read(&mut self, address: u32, data: &mut [u8]) -> Result<Rrm, Rl78Error> {
+        let len = data.len();
         for (i, byte) in data.iter_mut().enumerate() {
             let a = (address as usize + i) as u16;
-            match self.rrm_retry(|ocd| ocd.rrm_read_byte(a))? {
+            match self.rrm_retry(|ocd| ocd.rrm_read_byte(a, i + 1 == len))? {
                 Ok(value) => *byte = value,
                 Err(sync) => return Ok(Rrm::Stopped(sync)),
             }
@@ -780,5 +837,43 @@ impl<L: Rl78Uart> UartOcd<L> {
                 return Ok(b[0]);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod rrm_tests {
+    use super::{Sync, first_sync};
+
+    const SYNC: [u8; 5] = [0x12, 0x34, 0x56, 0x78, 0x00];
+
+    #[test]
+    fn a_stop_seen_at_a_syncs_first_byte() {
+        let stream: Vec<u8> = SYNC.iter().chain(&[0, 0, 0, 0, 0]).copied().collect();
+        assert_eq!(
+            first_sync(&stream, Some(0xAA)),
+            Some(Sync::from_bytes(&SYNC))
+        );
+    }
+
+    #[test]
+    fn a_stop_whose_first_byte_was_taken_for_data() {
+        // The read before got 12H; what follows is the rest of that sync and one more.
+        let stream: Vec<u8> = SYNC[1..].iter().chain(&SYNC).copied().collect();
+        assert_eq!(
+            first_sync(&stream, Some(0x12)),
+            Some(Sync::from_bytes(&SYNC))
+        );
+        assert_eq!(
+            first_sync(&stream, None),
+            None,
+            "no data before: not a sync stream"
+        );
+    }
+
+    #[test]
+    fn not_a_sync() {
+        assert_eq!(first_sync(&[1, 2, 3, 4, 5], None), None, "no prompt byte");
+        assert_eq!(first_sync(&[1, 2, 3], Some(0)), None);
+        assert_eq!(first_sync(&[], None), None);
     }
 }

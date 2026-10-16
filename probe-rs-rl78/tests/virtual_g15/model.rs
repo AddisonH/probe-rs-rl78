@@ -444,7 +444,7 @@ impl Model {
             m.cpu.mem.poke(block, &[b0]);
         };
         let target = 0xF_0000 | u32::from(addr);
-        let in_window = addr < 0x0800 || addr >= 0xDF00;
+        let in_window = !(0x0800..0xDF00).contains(&addr);
         let x = byte & 0x0F;
         self.rrm_commands += 1;
         match byte {
@@ -993,6 +993,10 @@ impl Rl78Uart for VirtualG15 {
             *d = s;
         }
         Ok(n)
+    }
+
+    fn buffered(&self) -> usize {
+        self.lock().rx.len()
     }
 
     fn set_reset(&mut self, asserted: bool) -> Result<(), Rl78Error> {
