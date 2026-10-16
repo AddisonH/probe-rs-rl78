@@ -1,5 +1,6 @@
 use crate::architecture::arm::ArmError;
 use crate::architecture::riscv::communication_interface::RiscvError;
+use crate::architecture::rl78::communication_interface::Rl78Error;
 use crate::architecture::xtensa::communication_interface::XtensaError;
 use crate::config::RegistryError;
 use crate::core::memory_mapped_registers::RegisterAddressOutOfBounds;
@@ -17,6 +18,8 @@ pub enum Error {
     Riscv(#[source] RiscvError),
     /// An Xtensa specific error occurred.
     Xtensa(#[source] XtensaError),
+    /// An RL78 specific error occurred.
+    Rl78(#[source] Rl78Error),
     /// Core {0} is not enabled.
     CoreDisabled(usize),
     /// Core {0} does not exist.

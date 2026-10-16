@@ -110,6 +110,8 @@ enum ArchitectureInterface {
         riscv_mem_ap_cores: Vec<Option<(FullyQualifiedApAddress, RiscvDebugInterfaceState)>>,
     },
     Jtag(Probe, Vec<JtagInterface>),
+    /// The RL78 on-chip debugger: one core, reached through the probe directly.
+    Rl78(Probe),
 }
 
 impl fmt::Debug for ArchitectureInterface {
@@ -123,6 +125,7 @@ impl fmt::Debug for ArchitectureInterface {
                 .debug_tuple("ArchitectureInterface::Jtag(..)")
                 .field(ifaces)
                 .finish(),
+            ArchitectureInterface::Rl78(_) => f.write_str("ArchitectureInterface::Rl78(..)"),
         }
     }
 }
@@ -172,6 +175,10 @@ impl ArchitectureInterface {
                     }
                 }
             }
+            ArchitectureInterface::Rl78(probe) => {
+                let iface = probe.try_get_rl78_interface()?;
+                combined_state.attach_rl78(target, iface)
+            }
         }
     }
 }
@@ -203,7 +210,9 @@ impl Session {
 
         // Use ARM DAP path when the target connects via SWD/DAP: either ARM cores or RISC-V cores
         // over mem-AP (e.g. RP235x_riscv).
-        let mut session = if target.default_core().memory_ap().is_some() {
+        let mut session = if target.default_core().core_type.architecture() == Architecture::Rl78 {
+            Self::attach_rl78(probe, target, cores)?
+        } else if target.default_core().memory_ap().is_some() {
             Self::attach_arm_debug_interface(probe, target, attach_method, permissions, cores)?
         } else {
             Self::attach_jtag(probe, target, attach_method, permissions, cores)?
@@ -542,6 +551,38 @@ impl Session {
         Ok(session)
     }
 
+    /// Attach to an RL78. There is no scan chain or access port: the probe's interface is the
+    /// on-chip debugger itself, and attaching resets the part into it, so every attach is an
+    /// attach under reset and leaves the core halted.
+    fn attach_rl78(
+        mut probe: Probe,
+        target: Target,
+        mut cores: Vec<CombinedCoreState>,
+    ) -> Result<Self, Error> {
+        if cores.len() != 1 {
+            return Err(Error::Other(format!(
+                "{} lists {} cores; an RL78 has one",
+                target.name,
+                cores.len()
+            )));
+        }
+        if !probe.has_rl78_interface() {
+            return Err(Error::Probe(DebugProbeError::InterfaceNotAvailable {
+                interface_name: "RL78",
+            }));
+        }
+        probe.attach_to_unspecified()?;
+        let sync = probe.try_get_rl78_interface()?.attach()?;
+        cores[0].rl78_state_mut().attached(sync);
+
+        Ok(Session {
+            target,
+            interfaces: ArchitectureInterface::Rl78(probe),
+            cores,
+            configured_trace_sink: None,
+        })
+    }
+
     /// Automatically open a probe with the given session config.
     fn auto_probe(session_config: &SessionConfig) -> Result<Probe, Error> {
         // Get a list of all available debug probes.
@@ -728,7 +769,9 @@ impl Session {
         let interface = match &mut self.interfaces {
             ArchitectureInterface::Arm(state) => state.deref_mut(),
             ArchitectureInterface::ArmWithRiscv { arm, .. } => arm.deref_mut(),
-            ArchitectureInterface::Jtag(..) => return Err(ArmError::NoArmTarget),
+            ArchitectureInterface::Jtag(..) | ArchitectureInterface::Rl78(_) => {
+                return Err(ArmError::NoArmTarget);
+            }
         };
 
         Ok(interface)
@@ -768,7 +811,9 @@ impl Session {
                     Err(RiscvError::NoRiscvTarget.into())
                 }
             }
-            ArchitectureInterface::Arm(_) => Err(RiscvError::NoRiscvTarget.into()),
+            ArchitectureInterface::Arm(_) | ArchitectureInterface::Rl78(_) => {
+                Err(RiscvError::NoRiscvTarget.into())
+            }
         }
     }
 
@@ -843,6 +888,7 @@ impl Session {
             DebugSequence::Xtensa(xtensa_debug_sequence) => {
                 xtensa_debug_sequence.prepare_running_on_ram(self, vector_table_addr, core_id)
             }
+            DebugSequence::Rl78(_) => Err(Error::NotImplemented("RAM running on RL78 targets")),
         }
     }
 
@@ -867,7 +913,7 @@ impl Session {
         let interface_ref = match &mut self.interfaces {
             ArchitectureInterface::Arm(i) => i.deref_mut(),
             ArchitectureInterface::ArmWithRiscv { arm, .. } => arm.deref_mut(),
-            ArchitectureInterface::Jtag(..) => {
+            ArchitectureInterface::Jtag(..) | ArchitectureInterface::Rl78(_) => {
                 return Err(Error::NotImplemented(
                     "Debug Erase Sequence is not implemented for non-ARM targets.",
                 ));
@@ -901,7 +947,7 @@ impl Session {
                         core_state.enable_arm_debug(arm.deref_mut())?;
                     }
                 }
-                ArchitectureInterface::Jtag(..) => {}
+                ArchitectureInterface::Jtag(..) | ArchitectureInterface::Rl78(_) => {}
             },
             Err(e) => return Err(Error::Arm(e)),
         }
@@ -1008,11 +1054,17 @@ impl Session {
                     Architecture::Xtensa
                 }
             }
+            ArchitectureInterface::Rl78(_) => Architecture::Rl78,
         }
     }
 
     /// Clears all hardware breakpoints on all cores
     pub fn clear_all_hw_breakpoints(&mut self) -> Result<(), Error> {
+        // RL78 has no breakpoint hardware to clear, and halting a core to find that out would stop
+        // a program the user has just reset into, or fail if it never armed the monitor.
+        if matches!(self.interfaces, ArchitectureInterface::Rl78(_)) {
+            return Ok(());
+        }
         self.halted_access(|session| {
             { 0..session.cores.len() }.try_for_each(|core| {
                 tracing::info!("Clearing breakpoints for core {core}");

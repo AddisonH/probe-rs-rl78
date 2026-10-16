@@ -29,6 +29,7 @@ use crate::architecture::arm::{
     traits::DebugPortWire,
 };
 use crate::architecture::riscv::communication_interface::{RiscvError, RiscvInterfaceBuilder};
+use crate::architecture::rl78::communication_interface::Rl78OcdInterface;
 use crate::architecture::xtensa::communication_interface::{
     XtensaCommunicationInterface, XtensaDebugInterfaceState, XtensaError,
 };
@@ -576,6 +577,20 @@ impl Probe {
         }
     }
 
+    /// Check if the probe has an interface to debug RL78 chips.
+    pub fn has_rl78_interface(&self) -> bool {
+        self.inner.has_rl78_interface()
+    }
+
+    /// Try to get the [`Rl78OcdInterface`], the RL78 on-chip debugger's primitives.
+    pub fn try_get_rl78_interface(&mut self) -> Result<&mut dyn Rl78OcdInterface, DebugProbeError> {
+        if !self.attached {
+            Err(DebugProbeError::NotAttached)
+        } else {
+            self.inner.try_get_rl78_interface()
+        }
+    }
+
     /// Checks if the probe supports connecting to chips
     /// using the Arm Debug Interface.
     pub fn has_arm_debug_interface(&self) -> bool {
@@ -826,6 +841,19 @@ pub trait DebugProbe: Any + Send + fmt::Debug {
 
     /// Check if the probe offers an interface to debug Xtensa chips.
     fn has_xtensa_interface(&self) -> bool {
+        false
+    }
+
+    /// Get the interface to debug RL78 chips. Ensure that the probe actually supports this by
+    /// calling [DebugProbe::has_rl78_interface] first.
+    fn try_get_rl78_interface(&mut self) -> Result<&mut dyn Rl78OcdInterface, DebugProbeError> {
+        Err(DebugProbeError::InterfaceNotAvailable {
+            interface_name: "RL78",
+        })
+    }
+
+    /// Check if the probe offers an interface to debug RL78 chips.
+    fn has_rl78_interface(&self) -> bool {
         false
     }
 

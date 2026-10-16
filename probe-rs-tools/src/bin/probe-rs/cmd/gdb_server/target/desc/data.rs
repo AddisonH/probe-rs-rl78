@@ -50,6 +50,9 @@ pub struct TargetDescription {
     arch: &'static str,
     features: Vec<GdbFeature>,
     regs: Vec<GdbRegister>,
+    /// Whether to describe the registers to GDB. Some GDB ports have a fixed register layout
+    /// and reject a described one.
+    describe_registers: bool,
 }
 
 impl TargetDescription {
@@ -73,12 +76,14 @@ impl TargetDescription {
             CoreType::Riscv => "riscv:rv32",
             CoreType::Riscv64 => "riscv:rv64",
             CoreType::Xtensa => "xtensa",
+            CoreType::Rl78 => "rl78",
         };
 
         Self {
             arch,
             features: vec![],
             regs: vec![],
+            describe_registers: true,
         }
     }
 
@@ -108,7 +113,12 @@ impl TargetDescription {
 
         let mut reg_start = 0usize;
 
-        for feature in self.features.iter() {
+        let features = if self.describe_registers {
+            &self.features[..]
+        } else {
+            &[]
+        };
+        for feature in features {
             let _ = write!(target_description, "<feature name='{}'>", feature.name);
 
             for i in reg_start..reg_start + feature.reg_count {
@@ -234,6 +244,8 @@ impl TargetDescription {
 
 fn size_to_type(size: usize) -> &'static str {
     match size {
+        8 => "uint8",
+        16 => "uint16",
         32 => "uint32",
         64 => "uint64",
         128 => "uint128",
@@ -261,6 +273,7 @@ pub fn build_target_description(
         },
         CoreType::Riscv | CoreType::Riscv64 => build_riscv_registers(&mut desc, regs),
         CoreType::Xtensa => build_xtensa_registers(&mut desc, regs),
+        CoreType::Rl78 => build_rl78_registers(&mut desc),
     };
 
     desc
@@ -372,6 +385,18 @@ fn build_cortex_m_registers(desc: &mut TargetDescription, regs: &CoreRegisters) 
 
     desc.update_register_type("SP", "data_ptr");
     desc.update_register_type("PC", "code_ptr");
+}
+
+fn build_rl78_registers(desc: &mut TargetDescription) {
+    // GDB's rl78 port takes no target-supplied registers: given a list it warns "Target-supplied
+    // registers are not supported by the current architecture" and ignores it. So the
+    // description names the architecture only, and this list exists to pack g/G in GDB's
+    // built-in order: 32 bank bytes, PSW, ES, CS, PC (4 bytes), SPL, SPH, PMC, MEM.
+    desc.describe_registers = false;
+    desc.add_gdb_feature("org.gnu.gdb.rl78.core");
+    for (name, bits, id) in architecture::rl78::registers::gdb_raw_layout() {
+        desc.add_register_from_details(name, bits, id);
+    }
 }
 
 fn build_xtensa_registers(desc: &mut TargetDescription, regs: &CoreRegisters) {

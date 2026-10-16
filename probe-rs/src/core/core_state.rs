@@ -7,6 +7,7 @@ use crate::{
             dp::DpAddress,
         },
         riscv::{Riscv64, RiscvCoreState, communication_interface::RiscvCommunicationInterface},
+        rl78::{Rl78CoreState, communication_interface::Rl78OcdInterface},
         xtensa::{
             XtensaCoreState,
             communication_interface::{XtensaCommunicationInterface, XtensaDebugInterfaceState},
@@ -263,6 +264,45 @@ impl CombinedCoreState {
         ))
     }
 
+    pub(crate) fn attach_rl78<'probe>(
+        &'probe mut self,
+        target: &'probe Target,
+        interface: &'probe mut dyn Rl78OcdInterface,
+    ) -> Result<Core<'probe>, Error> {
+        let name = &target.cores[self.id].name;
+
+        let ResolvedCoreOptions::Rl78 { sequence, .. } = &self.core_state.core_access_options
+        else {
+            unreachable!(
+                "The stored core state is not compatible with the RL78 architecture. \
+                This should never happen. Please file a bug if it does."
+            );
+        };
+        let debug_sequence = sequence.clone();
+
+        let SpecificCoreState::Rl78(s) = &mut self.specific_state else {
+            unreachable!(
+                "The stored core state is not compatible with the RL78 architecture. \
+                This should never happen. Please file a bug if it does."
+            );
+        };
+
+        Ok(Core::new(
+            self.id,
+            name,
+            target,
+            crate::architecture::rl78::Rl78::new(interface, s, debug_sequence)?,
+        ))
+    }
+
+    /// The RL78 state, for the session to record the attach.
+    pub(crate) fn rl78_state_mut(&mut self) -> &mut Rl78CoreState {
+        let SpecificCoreState::Rl78(s) = &mut self.specific_state else {
+            unreachable!("not an RL78 core");
+        };
+        s
+    }
+
     /// Get the memory AP for this core.
     ///
     /// ## Panic
@@ -336,6 +376,8 @@ pub enum SpecificCoreState {
     Riscv64(RiscvCoreState),
     /// The state of an Xtensa core.
     Xtensa(XtensaCoreState),
+    /// The state of an RL78 core.
+    Rl78(Rl78CoreState),
 }
 
 impl SpecificCoreState {
@@ -351,6 +393,7 @@ impl SpecificCoreState {
             CoreType::Riscv => SpecificCoreState::Riscv(RiscvCoreState::new()),
             CoreType::Riscv64 => SpecificCoreState::Riscv64(RiscvCoreState::new()),
             CoreType::Xtensa => SpecificCoreState::Xtensa(XtensaCoreState::new()),
+            CoreType::Rl78 => SpecificCoreState::Rl78(Rl78CoreState::new()),
         }
     }
 
@@ -366,6 +409,7 @@ impl SpecificCoreState {
             SpecificCoreState::Riscv(_) => CoreType::Riscv,
             SpecificCoreState::Riscv64(_) => CoreType::Riscv64,
             SpecificCoreState::Xtensa(_) => CoreType::Xtensa,
+            SpecificCoreState::Rl78(_) => CoreType::Rl78,
         }
     }
 }

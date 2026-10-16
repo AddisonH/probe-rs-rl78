@@ -506,6 +506,7 @@ impl CoreRegisters {
         use crate::architecture::riscv::registers64::{
             RISCV64_CORE_REGISTERS, RISCV64_WITH_FP_CORE_REGISTERS,
         };
+        use crate::architecture::rl78::registers::RL78_CORE_REGISTERS;
         use crate::architecture::xtensa::registers::{
             XTENSA_CORE_REGISTERS, XTENSA_WITH_FP_CORE_REGISTERS,
         };
@@ -549,6 +550,7 @@ impl CoreRegisters {
                     &XTENSA_CORE_REGISTERS
                 }
             }
+            CoreType::Rl78 => &RL78_CORE_REGISTERS,
         }
     }
 

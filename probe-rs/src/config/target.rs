@@ -7,6 +7,7 @@ use crate::{
             sequences::{ArmDebugSequence, DefaultArmSequence},
         },
         riscv::sequences::{DefaultRiscvSequence, RiscvDebugSequence},
+        rl78::sequences::{DefaultRl78Sequence, Rl78DebugSequence},
         xtensa::sequences::{DefaultXtensaSequence, XtensaDebugSequence},
     },
     flashing::{DebugFlashSequence, FlashVerify},
@@ -123,6 +124,7 @@ impl Target {
                 Architecture::Arm => DebugSequence::Arm(DefaultArmSequence::create()),
                 Architecture::Riscv => DebugSequence::Riscv(DefaultRiscvSequence::create()),
                 Architecture::Xtensa => DebugSequence::Xtensa(DefaultXtensaSequence::create()),
+                Architecture::Rl78 => DebugSequence::Rl78(DefaultRl78Sequence::create()),
             }
         });
 
@@ -186,6 +188,7 @@ impl Target {
                 CoreAccessOptions::Arm(options) => options.jtag_tap,
                 CoreAccessOptions::Riscv(options) => options.jtag_tap,
                 CoreAccessOptions::Xtensa(options) => options.jtag_tap,
+                CoreAccessOptions::Rl78(_) => None,
             };
             jtag_tap.unwrap_or(0) < scan_chain.len()
         })
@@ -291,6 +294,8 @@ pub enum DebugSequence {
     Riscv(Arc<dyn RiscvDebugSequence>),
     /// An Xtensa debug sequence.
     Xtensa(Arc<dyn XtensaDebugSequence>),
+    /// An RL78 debug sequence.
+    Rl78(Arc<dyn Rl78DebugSequence>),
 }
 
 impl DebugSequence {
@@ -303,6 +308,7 @@ impl DebugSequence {
             DebugSequence::Arm(seq) => seq.debug_flash_sequence(),
             DebugSequence::Riscv(seq) => seq.debug_flash_sequence(),
             DebugSequence::Xtensa(seq) => seq.debug_flash_sequence(),
+            DebugSequence::Rl78(seq) => seq.debug_flash_sequence(),
         }
     }
 
@@ -316,6 +322,7 @@ impl DebugSequence {
             DebugSequence::Arm(seq) => seq.flash_verify_sequence(),
             DebugSequence::Riscv(seq) => seq.flash_verify_sequence(),
             DebugSequence::Xtensa(seq) => seq.flash_verify_sequence(),
+            DebugSequence::Rl78(seq) => seq.flash_verify_sequence(),
         }
     }
 }
@@ -357,6 +364,7 @@ impl CoreExt for Core {
                 })
             }
             probe_rs_target::CoreAccessOptions::Xtensa(_) => None,
+            probe_rs_target::CoreAccessOptions::Rl78(_) => None,
         }
     }
 }

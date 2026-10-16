@@ -662,6 +662,7 @@ pub(crate) mod convert {
             InstructionSet::RV64 => WireInstructionSet::RV64,
             InstructionSet::RV64C => WireInstructionSet::RV64C,
             InstructionSet::Xtensa => WireInstructionSet::Xtensa,
+            InstructionSet::Rl78 => WireInstructionSet::Rl78,
         }
     }
 
@@ -675,6 +676,7 @@ pub(crate) mod convert {
             WireInstructionSet::RV64 => InstructionSet::RV64,
             WireInstructionSet::RV64C => InstructionSet::RV64C,
             WireInstructionSet::Xtensa => InstructionSet::Xtensa,
+            WireInstructionSet::Rl78 => InstructionSet::Rl78,
         }
     }
 
@@ -699,6 +701,7 @@ pub(crate) mod convert {
             probe_rs::CoreType::Riscv => WireCoreType::Riscv,
             probe_rs::CoreType::Riscv64 => WireCoreType::Riscv64,
             probe_rs::CoreType::Xtensa => WireCoreType::Xtensa,
+            probe_rs::CoreType::Rl78 => WireCoreType::Rl78,
         }
     }
 
@@ -714,6 +717,7 @@ pub(crate) mod convert {
             WireCoreType::Riscv => probe_rs::CoreType::Riscv,
             WireCoreType::Riscv64 => probe_rs::CoreType::Riscv64,
             WireCoreType::Xtensa => probe_rs::CoreType::Xtensa,
+            WireCoreType::Rl78 => probe_rs::CoreType::Rl78,
         }
     }
 }

@@ -2,4 +2,5 @@
 
 pub mod arm;
 pub mod riscv;
+pub mod rl78;
 pub mod xtensa;

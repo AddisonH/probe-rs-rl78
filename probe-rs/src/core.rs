@@ -3,6 +3,7 @@ use crate::{
     architecture::{
         arm::sequences::{ArmDebugSequence, DefaultArmSequence},
         riscv::sequences::{DefaultRiscvSequence, RiscvDebugSequence},
+        rl78::sequences::{DefaultRl78Sequence, Rl78DebugSequence},
         xtensa::sequences::{DefaultXtensaSequence, XtensaDebugSequence},
     },
     config::DebugSequence,
@@ -11,7 +12,8 @@ use crate::{
 };
 pub use probe_rs_target::{Architecture, CoreAccessOptions};
 use probe_rs_target::{
-    ArmCoreAccessOptions, MemoryRegion, RiscvCoreAccessOptions, XtensaCoreAccessOptions,
+    ArmCoreAccessOptions, MemoryRegion, RiscvCoreAccessOptions, Rl78CoreAccessOptions,
+    XtensaCoreAccessOptions,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -699,6 +701,10 @@ pub enum ResolvedCoreOptions {
         sequence: Arc<dyn XtensaDebugSequence>,
         options: XtensaCoreAccessOptions,
     },
+    Rl78 {
+        sequence: Arc<dyn Rl78DebugSequence>,
+        options: Rl78CoreAccessOptions,
+    },
 }
 
 impl ResolvedCoreOptions {
@@ -728,6 +734,13 @@ impl ResolvedCoreOptions {
                 };
                 Self::Xtensa { sequence, options }
             }
+            CoreAccessOptions::Rl78(options) => {
+                let sequence = match &target.debug_sequence {
+                    DebugSequence::Rl78(s) => s.clone(),
+                    _ => DefaultRl78Sequence::create(),
+                };
+                Self::Rl78 { sequence, options }
+            }
         }
     }
 
@@ -736,6 +749,8 @@ impl ResolvedCoreOptions {
             Self::Arm { options, .. } => options.jtag_tap.unwrap_or(0),
             Self::Riscv { options, .. } => options.jtag_tap.unwrap_or(0),
             Self::Xtensa { options, .. } => options.jtag_tap.unwrap_or(0),
+            // One core, and no scan chain.
+            Self::Rl78 { .. } => 0,
         }
     }
 }
@@ -756,6 +771,11 @@ impl std::fmt::Debug for ResolvedCoreOptions {
             Self::Xtensa { options, .. } => f
                 .debug_struct("Xtensa")
                 .field("sequence", &"<XtensaDebugSequence>")
+                .field("options", options)
+                .finish(),
+            Self::Rl78 { options, .. } => f
+                .debug_struct("Rl78")
+                .field("sequence", &"<Rl78DebugSequence>")
                 .field("options", options)
                 .finish(),
         }

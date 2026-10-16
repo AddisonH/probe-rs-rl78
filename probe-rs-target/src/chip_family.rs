@@ -51,6 +51,8 @@ pub enum CoreType {
     Riscv64,
     /// Xtensa - TODO: may need to split into NX, LX6 and LX7
     Xtensa,
+    /// Renesas RL78 (RL78-S2 core: four register banks, as on the RL78/G15)
+    Rl78,
 }
 
 impl CoreType {
@@ -68,6 +70,10 @@ impl CoreType {
 
     fn is_xtensa(&self) -> bool {
         matches!(self, CoreType::Xtensa)
+    }
+
+    fn is_rl78(&self) -> bool {
+        matches!(self, CoreType::Rl78)
     }
 
     fn is_arm(&self) -> bool {
@@ -88,6 +94,7 @@ impl CoreType {
         match self {
             CoreType::Riscv | CoreType::Riscv64 => Architecture::Riscv,
             CoreType::Xtensa => Architecture::Xtensa,
+            CoreType::Rl78 => Architecture::Rl78,
             _ => Architecture::Arm,
         }
     }
@@ -102,6 +109,8 @@ pub enum Architecture {
     Riscv,
     /// An Xtensa core.
     Xtensa,
+    /// A Renesas RL78 core.
+    Rl78,
 }
 
 /// Instruction set used by a core
@@ -123,6 +132,8 @@ pub enum InstructionSet {
     RV64C,
     /// Xtensa instruction set
     Xtensa,
+    /// Renesas RL78 instruction set: 1 to 5 bytes per instruction, counting the `ES:` prefix
+    Rl78,
 }
 
 impl InstructionSet {
@@ -133,6 +144,7 @@ impl InstructionSet {
             "arm" => Some(InstructionSet::A32),
             "aarch64" => Some(InstructionSet::A64),
             "xtensa" => Some(InstructionSet::Xtensa),
+            "rl78" => Some(InstructionSet::Rl78),
             other => {
                 if let Some(features) = other.strip_prefix("riscv32") {
                     if features.contains('c') {
@@ -168,12 +180,17 @@ impl InstructionSet {
             InstructionSet::RV64 => 4,
             InstructionSet::RV64C => 2,
             InstructionSet::Xtensa => 2,
+            InstructionSet::Rl78 => 1,
         }
     }
-    /// Get the maximum instruction size in bytes. All supported architectures have a maximum instruction size of 4 bytes.
+    /// Get the maximum instruction size in bytes.
     pub fn get_maximum_instruction_size(&self) -> u8 {
-        // TODO: Xtensa may have wide instructions
-        4
+        match self {
+            // An `ES:` prefix plus a four-byte instruction
+            InstructionSet::Rl78 => 5,
+            // TODO: Xtensa may have wide instructions
+            _ => 4,
+        }
     }
 
     /// Returns whether a CPU with the `self` instruction set is compatible with a program compiled for `instr_set`.
@@ -345,6 +362,12 @@ impl ChipFamily {
                     CoreAccessOptions::Xtensa(_) if !core.core_type.is_xtensa() => {
                         return Err(format!(
                             "Xtensa options don't match core type {:?} on core {}",
+                            core.core_type, core.name
+                        ));
+                    }
+                    CoreAccessOptions::Rl78(_) if !core.core_type.is_rl78() => {
+                        return Err(format!(
+                            "RL78 options don't match core type {:?} on core {}",
                             core.core_type, core.name
                         ));
                     }

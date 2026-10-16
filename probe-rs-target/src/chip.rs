@@ -187,6 +187,8 @@ pub enum CoreAccessOptions {
     Riscv(RiscvCoreAccessOptions),
     /// Xtensa specific options
     Xtensa(XtensaCoreAccessOptions),
+    /// RL78 specific options
+    Rl78(Rl78CoreAccessOptions),
 }
 
 /// An address for AP accesses
@@ -245,6 +247,15 @@ pub struct RiscvCoreAccessOptions {
     #[serde(default)]
     pub mem_ap: Option<ApAddress>,
 }
+
+/// The data required to access an RL78 core.
+///
+/// Empty for now: the RL78 on-chip debugger has one core and no scan chain or access port to
+/// select. It exists so that the core type and its options stay paired, as for the other
+/// architectures.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Rl78CoreAccessOptions {}
 
 /// The data required to access an Xtensa core
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -177,6 +177,8 @@ impl FlashAlgorithm {
             },
             CoreType::Riscv | CoreType::Riscv64 => &Self::RISCV_FLASH_BLOB_HEADER,
             CoreType::Xtensa => &Self::XTENSA_FLASH_BLOB_HEADER,
+            // RL78 flash is programmed from the host; there are no target-side algorithms.
+            CoreType::Rl78 => &[],
         }
     }
 
@@ -185,6 +187,7 @@ impl FlashAlgorithm {
             Architecture::Arm => 8,
             Architecture::Riscv => 16,
             Architecture::Xtensa => 16,
+            Architecture::Rl78 => 2,
         }
     }
 
