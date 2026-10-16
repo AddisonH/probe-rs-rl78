@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use model::VirtualG15;
 use probe_rs::{
-    Core, Error, MemoryInterface, Permissions, RegisterId, Session,
+    Core, CoreStatus, Error, HaltReason, MemoryInterface, Permissions, RegisterId, Session,
     architecture::rl78::{communication_interface::Rl78Error, registers::*},
     flashing::DownloadOptions,
     probe::Probe,
@@ -438,4 +438,143 @@ fn routines_refuse_ram_under_the_stack() {
     // The monitor is unharmed.
     assert_eq!(reg(&mut core, SP_ID), 0xF_FD10);
     core.step().unwrap();
+}
+
+/// Where [`image`] puts `FEED_AND_COUNT`'s `incw`: after `movw sp` at `000D8H` and the feed.
+const INCW_IN_FLASH: u64 = 0xDF;
+
+/// A breakpoint in flash is an `FFH` trap (§24): it costs a block rewrite, and the PC comes back
+/// onto it. Continuing runs the instruction under it exactly once, then traps again. Ending the
+/// session takes it out of flash.
+#[test]
+fn breakpoint_in_flash() {
+    let g15 = VirtualG15::new();
+    {
+        let mut session = session(&g15);
+        flash(&mut session, &image(&FEED_AND_COUNT), false);
+        let erased = g15.lock().flash().blocks_erased;
+        let mut core = session.core(0).unwrap();
+        core.reset_and_halt(Duration::from_millis(100)).unwrap();
+        core.set_hw_breakpoint(INCW_IN_FLASH).unwrap();
+        core.run().unwrap();
+        core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+        assert_eq!(reg(&mut core, PC_ID), INCW_IN_FLASH);
+        assert!(matches!(
+            core.status().unwrap(),
+            CoreStatus::Halted(HaltReason::Breakpoint(_))
+        ));
+        assert_eq!(g15.lock().flash().blocks_erased, erased + 1, "planting it");
+        let mut code = [0; 3];
+        core.read_8(INCW_IN_FLASH, &mut code).unwrap();
+        assert_eq!(
+            code,
+            [0xA2, 0x40, 0xFE],
+            "reads show the program, not the trap"
+        );
+        assert_eq!(g15.lock().peek(INCW_IN_FLASH as u32), 0xFF);
+
+        let n = counter(&mut core);
+        for i in 1..=3 {
+            core.run().unwrap();
+            core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+            assert_eq!(reg(&mut core, PC_ID), INCW_IN_FLASH);
+            assert_eq!(counter(&mut core), n + i, "one INCW per continue");
+        }
+
+        core.clear_hw_breakpoint(INCW_IN_FLASH).unwrap();
+        core.run().unwrap();
+        g15.run_for_ms(1);
+        core.halt(Duration::from_millis(100)).unwrap();
+        assert!(counter(&mut core) > n + 100, "ran freely once cleared");
+        assert_eq!(g15.lock().peek(INCW_IN_FLASH as u32), 0xA2);
+
+        // Set again and left set: the session's end takes it out.
+        core.set_hw_breakpoint(INCW_IN_FLASH).unwrap();
+        core.run().unwrap();
+        core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+        core.run().unwrap();
+    }
+    assert_eq!(
+        g15.lock().peek(INCW_IN_FLASH as u32),
+        0xA2,
+        "restored at the end"
+    );
+}
+
+/// A breakpoint in RAM is the same trap, written directly.
+#[test]
+fn breakpoint_in_ram() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    let mut core = session.core(0).unwrap();
+    load(&mut core, &FEED_AND_COUNT);
+    core.set_hw_breakpoint(PROG + 3).unwrap();
+    core.run().unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    assert_eq!(reg(&mut core, PC_ID), PROG + 3);
+    let n = counter(&mut core);
+    core.run().unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    assert_eq!(counter(&mut core), n + 1);
+    let mut code = [0; 1];
+    core.read_8(PROG + 3, &mut code).unwrap();
+    assert_eq!(code, [0xA2]);
+    assert_eq!(g15.lock().flash().blocks_erased, 0, "no flash involved");
+}
+
+/// Two breakpoints in one block share its rewrites, and clearing one keeps the other. From the
+/// first, the next instruction is the second: continuing stops there without running on.
+#[test]
+fn two_breakpoints_in_one_block() {
+    const FEED: u64 = 0xDC;
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    flash(&mut session, &image(&FEED_AND_COUNT), false);
+    let erased = g15.lock().flash().blocks_erased;
+    let mut core = session.core(0).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    core.set_hw_breakpoint(FEED).unwrap();
+    core.set_hw_breakpoint(INCW_IN_FLASH).unwrap();
+    core.run().unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    assert_eq!(reg(&mut core, PC_ID), FEED);
+    assert_eq!(
+        g15.lock().flash().blocks_erased,
+        erased + 1,
+        "both in one rewrite"
+    );
+
+    // A third in the same block, put in place by a step: the block is rewritten, and the trap
+    // that is not changing stays.
+    const BRANCH: u64 = 0xE2;
+    core.set_hw_breakpoint(BRANCH).unwrap();
+    assert_eq!(core.step().unwrap().pc, INCW_IN_FLASH);
+    assert_eq!(g15.lock().peek(BRANCH as u32), 0xFF);
+    assert_eq!(
+        g15.lock().peek(INCW_IN_FLASH as u32),
+        0xFF,
+        "kept through the rewrite"
+    );
+    core.clear_hw_breakpoint(BRANCH).unwrap();
+    core.set_hw_breakpoint(FEED).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    core.run().unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    assert_eq!(reg(&mut core, PC_ID), FEED);
+    let n = counter(&mut core);
+
+    core.run().unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    assert_eq!(reg(&mut core, PC_ID), INCW_IN_FLASH);
+    assert_eq!(counter(&mut core), n);
+
+    core.clear_hw_breakpoint(FEED).unwrap();
+    core.run().unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    assert_eq!(
+        reg(&mut core, PC_ID),
+        INCW_IN_FLASH,
+        "the other one still traps"
+    );
+    assert_eq!(counter(&mut core), n + 1);
 }

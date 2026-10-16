@@ -234,7 +234,7 @@ impl Rl78<'_> {
 
     /// Erase the code flash blocks that `range` touches, in one command. The sequencer takes the
     /// first block's start and the last block's start with bits 9-2 set [g15:p671].
-    fn flash_erase(&mut self, range: Range<u32>) -> Result<(), Error> {
+    pub(super) fn flash_erase(&mut self, range: Range<u32>) -> Result<(), Error> {
         let first = range.start & !(BLOCK - 1);
         let last = (range.end - 1) & !(BLOCK - 1);
         let blocks = (last - first) / BLOCK + 1;
@@ -249,12 +249,14 @@ impl Rl78<'_> {
             last | 0x3FC,
             &[],
             ERASE_TIMEOUT_PER_BLOCK * blocks,
-        )
+        )?;
+        self.state.breakpoints.erased(first..last + BLOCK);
+        Ok(())
     }
 
     /// Write erased code flash, whole words from a word boundary. Runs of `FFH` are left out:
     /// erased flash already reads that way.
-    fn flash_write(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
+    pub(super) fn flash_write(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
         if !address.is_multiple_of(WORD as u32) || !data.len().is_multiple_of(WORD) {
             return Err(Rl78Error::Other(format!(
                 "flash writes are whole 4-byte words: {address:05X}H+{}",

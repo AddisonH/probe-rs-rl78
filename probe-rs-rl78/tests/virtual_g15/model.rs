@@ -785,8 +785,12 @@ impl VirtualG15 {
         Self(Arc::new(Mutex::new(m)))
     }
 
+    /// The model. A test that panicked holding it leaves it poisoned; the session's teardown
+    /// still needs it, and a second panic there would abort every test in the binary.
     pub fn lock(&self) -> MutexGuard<'_, Model> {
-        self.0.lock().unwrap()
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Let a running program run for `ms` milliseconds of its time.

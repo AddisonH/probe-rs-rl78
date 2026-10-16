@@ -30,6 +30,7 @@ use crate::{
     memory::valid_32bit_address,
 };
 
+mod breakpoints;
 pub mod communication_interface;
 mod flash;
 pub mod protocol;
@@ -181,6 +182,8 @@ pub struct Rl78CoreState {
     /// Halted where an attach under reset leaves the part: the boot ROM's idle loop, before the
     /// program has run at all.
     at_boot_rom: bool,
+    /// Breakpoints asked for and traps in memory. Traps in flash outlive a reset.
+    breakpoints: Box<breakpoints::Breakpoints>,
 }
 
 impl Rl78CoreState {
@@ -195,6 +198,7 @@ impl Rl78CoreState {
             sync,
             halt_reason: Some(HaltReason::Request),
             at_boot_rom: true,
+            breakpoints: std::mem::take(&mut self.breakpoints),
             ..Self::default()
         };
     }
@@ -353,6 +357,16 @@ impl<'probe> Rl78<'probe> {
         Ok(sync)
     }
 
+    /// Execute one instruction, whatever is at the PC.
+    fn step_raw(&mut self) -> Result<(), Error> {
+        let sync = self.store_context()?;
+        let sync = self
+            .interface
+            .execute(sync, true)?
+            .expect("a step returns the re-entry sync");
+        self.entered(sync, HaltReason::Step)
+    }
+
     /// The target stopped (a halt, a step, or by itself): unlock and forget the old context.
     fn entered(&mut self, sync: Sync, reason: HaltReason) -> Result<(), Error> {
         self.state.running = false;
@@ -470,7 +484,15 @@ impl<'probe> Rl78<'probe> {
         Ok(())
     }
 
+    /// Memory as the program has it: with the bytes that breakpoint traps replaced.
     fn read_bytes(&mut self, address: u64, data: &mut [u8]) -> Result<(), Error> {
+        self.read_bytes_raw(address, data)?;
+        self.state.breakpoints.hide_traps(address as u32, data);
+        Ok(())
+    }
+
+    /// Memory as it is, breakpoint traps included.
+    fn read_bytes_raw(&mut self, address: u64, data: &mut [u8]) -> Result<(), Error> {
         self.require_halted("memory access")?;
         let start = valid_32bit_address(address)?;
         let end = u64::from(start) + data.len() as u64;
@@ -628,9 +650,8 @@ impl CoreInterface for Rl78<'_> {
         if self.state.running
             && let Some(sync) = self.interface.poll_stopped()?
         {
-            // A breakpoint, or a watchdog reset: their syncs are identical (§28.4), and only
-            // the PC tells them apart. That test arrives with breakpoints.
             self.entered(sync, HaltReason::Unknown)?;
+            self.classify_stop()?;
         }
         Ok(!self.state.running)
     }
@@ -667,9 +688,14 @@ impl CoreInterface for Rl78<'_> {
             // program instead: a normal reset, after which the debug stub in flash arms the
             // monitor again (§31).
             tracing::info!("rl78: continuing from the attach: booting the program");
-            self.ram_return()?;
             return self.reset();
         }
+        if self.step_off_breakpoint()? && self.at_breakpoint()? {
+            // The next instruction is a breakpoint too: the target would trap at once.
+            self.state.halt_reason = Some(HaltReason::Breakpoint(crate::BreakpointCause::Hardware));
+            return Ok(());
+        }
+        self.sync_breakpoints(None)?;
         let sync = self.store_context()?;
         self.interface.execute(sync, false)?;
         self.state.running = true;
@@ -679,10 +705,17 @@ impl CoreInterface for Rl78<'_> {
 
     fn reset(&mut self) -> Result<(), Error> {
         // A normal boot into the program. Resuming after an attach would not do: that runs from
-        // the ROM's idle loop, and with the watchdog the boot ROM left running.
+        // the ROM's idle loop, and with the watchdog the boot ROM left running. Breakpoints go
+        // into flash first, so that the program meets them; the user's RAM goes back too, for
+        // anything the program keeps across a reset.
+        if !self.state.running {
+            self.sync_breakpoints(None)?;
+            self.ram_return()?;
+        }
         self.interface.reset()?;
         *self.state = Rl78CoreState {
             running: true,
+            breakpoints: std::mem::take(&mut self.state.breakpoints),
             ..Rl78CoreState::default()
         };
         Ok(())
@@ -698,12 +731,12 @@ impl CoreInterface for Rl78<'_> {
 
     fn step(&mut self) -> Result<CoreInformation, Error> {
         self.require_halted("step")?;
-        let sync = self.store_context()?;
-        let sync = self
-            .interface
-            .execute(sync, true)?
-            .expect("a step returns the re-entry sync");
-        self.entered(sync, HaltReason::Step)?;
+        // The instruction at the PC runs, so no trap there; the rest are put in place.
+        if !self.state.breakpoints.is_idle() {
+            let pc = self.pc()? as u32;
+            self.sync_breakpoints(Some(pc))?;
+        }
+        self.step_raw()?;
         Ok(CoreInformation { pc: self.pc()? })
     }
 
@@ -751,24 +784,25 @@ impl CoreInterface for Rl78<'_> {
     }
 
     fn available_breakpoint_units(&mut self) -> Result<u32, Error> {
-        // The G15 has no breakpoint hardware (§42). Breakpoints are FFH traps in flash, and
-        // arrive with flash programming.
-        Ok(0)
+        // The G15 has no breakpoint hardware (§42): these are FFH traps, put in place when the
+        // target next runs or steps.
+        Ok(breakpoints::UNITS as u32)
     }
 
     fn hw_breakpoints(&mut self) -> Result<Vec<Option<u64>>, Error> {
-        Ok(vec![])
+        Ok(self.breakpoint_units())
     }
 
     fn enable_breakpoints(&mut self, _state: bool) -> Result<(), Error> {
         Ok(())
     }
 
-    fn set_hw_breakpoint(&mut self, _unit_index: usize, _addr: u64) -> Result<(), Error> {
-        Err(Rl78Error::Unsupported("breakpoints").into())
+    fn set_hw_breakpoint(&mut self, unit_index: usize, addr: u64) -> Result<(), Error> {
+        self.set_breakpoint_unit(unit_index, addr)
     }
 
-    fn clear_hw_breakpoint(&mut self, _unit_index: usize) -> Result<(), Error> {
+    fn clear_hw_breakpoint(&mut self, unit_index: usize) -> Result<(), Error> {
+        self.clear_breakpoint_unit(unit_index);
         Ok(())
     }
 
@@ -826,7 +860,8 @@ impl CoreInterface for Rl78<'_> {
     }
 
     fn debug_core_stop(&mut self) -> Result<(), Error> {
-        Ok(())
+        // Leave no trap behind in the user's flash.
+        self.lift_all_breakpoints()
     }
 }
 
