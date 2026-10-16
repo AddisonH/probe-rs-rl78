@@ -314,9 +314,9 @@ pub struct Rl78Flash {
 }
 
 /// `MOV !F0080H,#0C5H` / `MOV FFFAFH,#40H` / `BR !entry` (§31.3), without the entry.
-const DEBUG_STUB: [u8; 8] = [0xCF, 0x80, 0x00, 0xC5, 0xCE, 0xAF, 0x40, 0xED];
-const DEBUG_STUB_AT: usize = 0xCE;
-const DEBUG_STUB_LEN: usize = DEBUG_STUB.len() + 2;
+pub(super) const DEBUG_STUB: [u8; 8] = [0xCF, 0x80, 0x00, 0xC5, 0xCE, 0xAF, 0x40, 0xED];
+pub(super) const DEBUG_STUB_AT: usize = 0xCE;
+pub(super) const DEBUG_STUB_LEN: usize = DEBUG_STUB.len() + 2;
 /// The first page must reach past the stub for any of this to apply.
 const HEAD: usize = DEBUG_STUB_AT + DEBUG_STUB_LEN;
 

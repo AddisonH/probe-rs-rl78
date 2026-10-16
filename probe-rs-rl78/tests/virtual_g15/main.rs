@@ -476,6 +476,29 @@ fn continue_after_attach_boots_the_program() {
     assert_eq!(core.halt(Duration::from_millis(100)).unwrap().pc, 0xDC);
 }
 
+/// A step straight after an attach boots the program and stops at its entry, `000D8H` here: the
+/// boot ROM's idle loop is no place to step. The one-shot trap that does it does not outlive the
+/// next step.
+#[test]
+fn step_after_attach_stops_at_the_entry() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    flash(&mut session, &image(&SPIN), false);
+    let mut core = session.core(0).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    assert_eq!(reg(&mut core, PC_ID), IDLE_LOOP);
+
+    assert_eq!(
+        core.step().unwrap().pc,
+        0xD8,
+        "at the program's first instruction"
+    );
+    assert_eq!(core.status().unwrap(), CoreStatus::Halted(HaltReason::Step));
+    assert_eq!(peek(&g15, 0xD8, 1), [0xFF], "the trap that stopped it");
+    assert_eq!(core.step().unwrap().pc, 0xDC, "past movw sp");
+    assert_eq!(peek(&g15, 0xD8, 1), [0xCB], "the program's own byte again");
+}
+
 /// e2 studio's monitor image (§4, §31): the reset vector on the debug stub, which branches to
 /// `0FFFFH`, the option bytes it writes, and the session's security ID.
 fn assert_monitor_image(g15: &VirtualG15, id: [u8; 10]) {

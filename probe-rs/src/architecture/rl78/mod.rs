@@ -233,6 +233,17 @@ impl<'probe> Rl78<'probe> {
         })
     }
 
+    /// Halted where an attach under reset leaves the part, the program not yet started, and
+    /// the debugger has not moved the PC to start it somewhere itself.
+    fn in_boot_rom(&self) -> bool {
+        self.state.at_boot_rom
+            && !self
+                .state
+                .context
+                .as_ref()
+                .is_some_and(|ctx| ctx.is_dirty(PC_ID))
+    }
+
     fn require_halted(&self, what: &'static str) -> Result<(), Error> {
         if self.state.running {
             return Err(Rl78Error::NotHalted(what).into());
@@ -771,12 +782,7 @@ impl CoreInterface for Rl78<'_> {
         if self.state.running {
             return Ok(());
         }
-        let pc_moved = self
-            .state
-            .context
-            .as_ref()
-            .is_some_and(|ctx| ctx.is_dirty(PC_ID));
-        if self.state.at_boot_rom && !pc_moved {
+        if self.in_boot_rom() {
             // Resuming here would only run the boot ROM's idle loop, with the watchdog running
             // whatever the option byte says (§47.1) and the part about 5x slow (§48.3). Boot the
             // program instead: a normal reset, after which the debug stub in flash arms the
@@ -825,7 +831,9 @@ impl CoreInterface for Rl78<'_> {
 
     fn step(&mut self) -> Result<CoreInformation, Error> {
         self.require_halted("step")?;
-        if self.state.breakpoints.is_idle() {
+        if self.in_boot_rom() {
+            self.boot_to_entry()?;
+        } else if self.state.breakpoints.is_idle() {
             self.step_raw()?;
         } else {
             self.step_over_traps()?;

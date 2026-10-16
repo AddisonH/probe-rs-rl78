@@ -18,8 +18,14 @@
 
 use std::collections::BTreeMap;
 
-use super::{PC_ID, RAM_BASE, RAM_SIZE, Rl78, SPH_ID, SPL_ID, protocol};
-use crate::{BreakpointCause, Error, HaltReason};
+use std::time::Duration;
+
+use super::{
+    PC_ID, RAM_BASE, RAM_SIZE, Rl78, SPH_ID, SPL_ID,
+    flash::{DEBUG_STUB, DEBUG_STUB_AT, DEBUG_STUB_LEN},
+    protocol,
+};
+use crate::{BreakpointCause, CoreInterface, Error, HaltReason};
 
 /// Virtual breakpoint units. `FFH` traps have no hardware limit; this is what Renesas's engine
 /// reports for the G15 (`GetMonEventNumMax`, §43.5).
@@ -33,6 +39,8 @@ const TRAP: u8 = 0xFF;
 #[derive(Debug, Default)]
 pub(super) struct Breakpoints {
     units: [Option<u32>; UNITS],
+    /// A trap of the driver's own, for one boot: [`Rl78::boot_to_entry`].
+    catch: Option<u32>,
     planted: BTreeMap<u32, u8>,
 }
 
@@ -45,6 +53,7 @@ impl Breakpoints {
     fn wanted(&self, skip: Option<u32>) -> impl Iterator<Item = u32> + '_ {
         self.units
             .iter()
+            .chain(std::iter::once(&self.catch))
             .flatten()
             .copied()
             .filter(move |&a| Some(a) != skip)
@@ -161,6 +170,43 @@ impl Rl78<'_> {
         if let Some(u) = self.state.breakpoints.units.get_mut(unit) {
             *u = None;
         }
+    }
+
+    /// Boot the program and stop at its first instruction. An attach under reset halts in the
+    /// boot ROM (§27.5), where stepping only goes round the ROM's idle loop, and from where
+    /// resuming would run the program with the watchdog and clock the attach left (§47.1,
+    /// §48.3). So a step from there is a normal reset with a one-shot trap at the entry the
+    /// debug stub branches to (§31.3). The trap costs a rewrite of block 0, and another to take
+    /// it out at the next run or step; only a step from the boot ROM pays it.
+    pub(super) fn boot_to_entry(&mut self) -> Result<(), Error> {
+        let mut stub = [0; DEBUG_STUB_LEN];
+        self.read_bytes(DEBUG_STUB_AT as u64, &mut stub)?;
+        if stub[..DEBUG_STUB.len()] != DEBUG_STUB {
+            return Err(Error::Other(
+                "the program cannot be booted under the debugger: flash has no debug stub at \
+                 000CEH (§31.3). Flash the program with probe-rs to add one."
+                    .to_string(),
+            ));
+        }
+        let entry = u32::from(u16::from_le_bytes([
+            stub[DEBUG_STUB.len()],
+            stub[DEBUG_STUB.len() + 1],
+        ]));
+        tracing::info!("rl78: stepping from the boot ROM: booting the program to {entry:05X}H");
+        self.state.breakpoints.catch = Some(entry);
+        let booted = self
+            .reset()
+            .and_then(|()| self.wait_for_core_halted(Duration::from_secs(2)));
+        self.state.breakpoints.catch = None;
+        booted?;
+        let pc = self.pc()? as u32;
+        if pc != entry {
+            return Err(Error::Other(format!(
+                "booting the program stopped at {pc:05X}H, not at its entry {entry:05X}H"
+            )));
+        }
+        self.state.halt_reason = Some(HaltReason::Step);
+        Ok(())
     }
 
     /// Put into memory the traps that are asked for, except at `skip`, and take out the rest.
