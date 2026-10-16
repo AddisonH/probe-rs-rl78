@@ -300,9 +300,11 @@ fn code_flash_is_read_by_a_routine_and_ram_is_given_back() {
             .read(0xF_FC10, &[0xEF, 0xF7, 0xF9, 0x85]);
         // A read of RAM while it is borrowed goes to the target, but shows the saved copy.
         s.read(0xF_FB00, &[0x41, 0x00]);
-        // Resuming puts RAM back first (with the debugger's write to it), then clears the step
-        // enable at F0085H, then returns from the interrupt.
+        // Resuming puts RAM back first (with the debugger's write to it), then the program's
+        // ES, which the routine changed, then clears the step enable at F0085H, then returns
+        // from the interrupt.
         s.write(0xF_FB00, &after)
+            .write(0xF_FFFD, &[0x00])
             .write(0xF_0085, &[0x00])
             .exchange(&[0x5C, 0, 0, 0, 0], &[0x00]);
     });

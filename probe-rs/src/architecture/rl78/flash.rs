@@ -231,6 +231,7 @@ impl Rl78<'_> {
         buf[P_FSSQ] = fssq;
         buf[PARAMS_LEN..].copy_from_slice(data);
         self.interface.write_mem(params, &buf)?;
+        self.routine_runs()?;
         self.interface.call_stub(timeout)?;
 
         let mut status = [0];

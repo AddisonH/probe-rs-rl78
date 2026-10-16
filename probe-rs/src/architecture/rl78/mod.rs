@@ -163,6 +163,11 @@ impl Context {
         }
     }
 
+    /// Write `id` back on the way out even if the debugger did not change it.
+    fn touch(&mut self, id: u16) {
+        self.dirty |= 1 << id;
+    }
+
     fn is_dirty(&self, id: u16) -> bool {
         self.dirty & (1 << id) != 0
     }
@@ -505,8 +510,17 @@ impl<'probe> Rl78<'probe> {
 
     /// Stage a routine in RAM and call it through the monitor's call gate.
     fn run_stub(&mut self, code: &[u8]) -> Result<(), Error> {
+        self.routine_runs()?;
         self.stage_stub(code)?;
         self.interface.call_stub(STUB_TIMEOUT)?;
+        Ok(())
+    }
+
+    /// A routine is about to run behind `5BH`. It changes ES (the read routine sets it, and ES
+    /// comes back as its reset value 0FH besides), and the program's ES is only in the context:
+    /// mark it to be written back, or the program resumes with the routine's.
+    pub(super) fn routine_runs(&mut self) -> Result<(), Error> {
+        self.load_context()?.touch(ES_ID);
         Ok(())
     }
 

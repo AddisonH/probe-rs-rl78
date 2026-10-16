@@ -579,6 +579,25 @@ fn attach_to_a_running_program_and_leave_it_running() {
     assert_eq!(counter_running(&g15), n, "left halted after a reflash");
 }
 
+/// A routine the debugger runs (here the read routine, for code flash below the mirror) changes
+/// ES; the program must get its own back when it resumes.
+#[test]
+fn routines_leave_the_programs_es() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    let mut core = session.core(0).unwrap();
+    // `mov es, #5` / `br $.`
+    load(&mut core, &[0x41, 0x05, 0xEF, 0xFE]);
+    core.run().unwrap();
+    g15.run_for_ms(1);
+    core.halt(Duration::from_millis(100)).unwrap();
+    let mut option_bytes = [0; 4];
+    core.read_8(0x00C0, &mut option_bytes).unwrap();
+    core.run().unwrap();
+    g15.run_for_ms(1);
+    assert_eq!(g15.lock().peek(0xF_FFFD), 0x05, "the program's ES");
+}
+
 /// e2 studio's monitor image (§4, §31): the reset vector on the debug stub, which branches to
 /// `0FFFFH`, the option bytes it writes, and the session's security ID.
 fn assert_monitor_image(g15: &VirtualG15, id: [u8; 10]) {
