@@ -3685,6 +3685,7 @@ dependencies = [
 [[package]]
 name = "rl78sim"
 version = "0.1.0"
+source = "git+https://github.com/AddisonH/rl78sim?rev=e0ff1257ff8ed05b6b42d7540138c5573b813bb8#e0ff1257ff8ed05b6b42d7540138c5573b813bb8"
 dependencies = [
  "anyhow",
  "clap",
