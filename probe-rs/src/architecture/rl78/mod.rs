@@ -899,12 +899,13 @@ impl CoreInterface for Rl78<'_> {
     }
 
     fn set_hw_breakpoint(&mut self, unit_index: usize, addr: u64) -> Result<(), Error> {
-        self.set_breakpoint_unit(unit_index, addr)
+        self.set_breakpoint_unit(unit_index, addr)?;
+        self.apply_breakpoints_now()
     }
 
     fn clear_hw_breakpoint(&mut self, unit_index: usize) -> Result<(), Error> {
         self.clear_breakpoint_unit(unit_index);
-        Ok(())
+        self.apply_breakpoints_now()
     }
 
     fn registers(&self) -> &'static crate::CoreRegisters {

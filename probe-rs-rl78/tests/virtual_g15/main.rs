@@ -499,6 +499,45 @@ fn step_after_attach_stops_at_the_entry() {
     assert_eq!(peek(&g15, 0xD8, 1), [0xCB], "the program's own byte again");
 }
 
+/// A breakpoint set while the program runs takes effect at once: a debugger sets breakpoints
+/// whenever its user clicks, and the traps otherwise only go in when the target next runs.
+/// Clearing one while running takes it out the same way, and the program runs on.
+#[test]
+fn breakpoints_change_while_running() {
+    // In the image's constants: planted and taken out, never reached.
+    const UNREACHED: u64 = 0x905;
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    flash(&mut session, &image(&FEED_AND_COUNT), false);
+    let mut core = session.core(0).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    core.run().unwrap();
+    g15.run_for_ms(1);
+
+    core.set_hw_breakpoint(UNREACHED).unwrap();
+    assert_eq!(g15.lock().peek(UNREACHED as u32), 0xFF, "put in at once");
+    assert_eq!(core.status().unwrap(), CoreStatus::Running);
+    core.clear_hw_breakpoint(UNREACHED).unwrap();
+    assert_eq!(g15.lock().peek(UNREACHED as u32), 0x05, "taken out at once");
+    let n = counter_running(&g15);
+    g15.run_for_ms(1);
+    assert!(counter_running(&g15) > n + 100, "and running on");
+
+    core.set_hw_breakpoint(INCW_IN_FLASH).unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    assert_eq!(reg(&mut core, PC_ID), INCW_IN_FLASH);
+    assert!(matches!(
+        core.status().unwrap(),
+        CoreStatus::Halted(HaltReason::Breakpoint(_))
+    ));
+}
+
+/// The counter, read from the model without disturbing the running program.
+fn counter_running(g15: &VirtualG15) -> u16 {
+    let m = g15.lock();
+    u16::from_le_bytes([m.peek(COUNTER as u32), m.peek(COUNTER as u32 + 1)])
+}
+
 /// e2 studio's monitor image (§4, §31): the reset vector on the debug stub, which branches to
 /// `0FFFFH`, the option bytes it writes, and the session's security ID.
 fn assert_monitor_image(g15: &VirtualG15, id: [u8; 10]) {

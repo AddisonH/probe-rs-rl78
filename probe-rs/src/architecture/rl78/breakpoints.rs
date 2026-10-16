@@ -172,6 +172,20 @@ impl Rl78<'_> {
         }
     }
 
+    /// The traps go into memory before the target next runs or steps, so a change made while it
+    /// runs would wait for the next halt; but a debugger sets breakpoints whenever its user
+    /// clicks. Apply the change now: halt, put the traps in, resume. A target that has stopped
+    /// by itself in the meantime is left stopped, for its debugger to find; the change goes in
+    /// at its next run.
+    pub(super) fn apply_breakpoints_now(&mut self) -> Result<(), Error> {
+        if !self.state.running || self.core_halted()? {
+            return Ok(());
+        }
+        let sync = self.interface.halt()?;
+        self.entered(sync, HaltReason::Request)?;
+        self.run()
+    }
+
     /// Boot the program and stop at its first instruction. An attach under reset halts in the
     /// boot ROM (§27.5), where stepping only goes round the ROM's idle loop, and from where
     /// resuming would run the program with the watchdog and clock the attach left (§47.1,
