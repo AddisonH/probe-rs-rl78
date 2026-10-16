@@ -3155,6 +3155,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "probe-rs-rl78"
+version = "0.32.0"
+dependencies = [
+ "nusb",
+ "probe-rs",
+ "probe-rs-target",
+ "tracing",
+ "yaml_serde",
+]
+
+[[package]]
 name = "probe-rs-rpc"
 version = "0.1.0"
 dependencies = [
@@ -3257,6 +3268,7 @@ dependencies = [
  "probe-rs-espressif",
  "probe-rs-linux",
  "probe-rs-mi",
+ "probe-rs-rl78",
  "probe-rs-rpc",
  "probe-rs-rpc-client",
  "probe-rs-target",

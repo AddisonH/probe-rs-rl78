@@ -1,0 +1,72 @@
+# RL78/G15, hand-written for the Phase 1 vertical slice. To be generated from Renesas's device
+# files later (rl78-devdb). Memory map from [g15:p56] and the mirrors from [g15:p62].
+name: RL78_G15
+variants:
+- name: R5F12068
+  cores:
+  - name: main
+    type: rl78
+    core_access_options: !Rl78 {}
+  memory_map:
+  - !Nvm
+    name: Code flash
+    range:
+      start: 0x0
+      end: 0x2000
+    cores:
+    - main
+    access:
+      boot: true
+  - !Nvm
+    name: Data flash
+    range:
+      start: 0x9000
+      end: 0x9400
+    cores:
+    - main
+  # The on-chip debug ROM. Not the user's, but a freshly attached part halts in its idle loop at
+  # 0EFFFCH (notes section 27.5), so the debugger has to be able to show it.
+  - !Generic
+    name: OCD ROM
+    range:
+      start: 0xefe00
+      end: 0xf0000
+    cores:
+    - main
+  - !Generic
+    name: 2nd SFR
+    range:
+      start: 0xf0000
+      end: 0xf0800
+    cores:
+    - main
+  - !Generic
+    name: Code flash mirror
+    range:
+      start: 0xf0800
+      end: 0xf2000
+    cores:
+    - main
+  - !Generic
+    name: Data flash mirror
+    range:
+      start: 0xf9000
+      end: 0xf9400
+    cores:
+    - main
+  # RAM proper is FFB00H-FFEDFH; the general-purpose registers follow at FFEE0H-FFEFFH and are
+  # included so register banks can be read as memory.
+  - !Ram
+    name: RAM
+    range:
+      start: 0xffb00
+      end: 0xfff00
+    cores:
+    - main
+  - !Generic
+    name: SFR
+    range:
+      start: 0xfff00
+      end: 0x100000
+    cores:
+    - main

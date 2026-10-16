@@ -1,0 +1,22 @@
+[package]
+name = "probe-rs-rl78"
+description = "Renesas RL78 support built on top of the probe-rs crate"
+version.workspace = true
+edition.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme = "README.md"
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+probe-rs.workspace = true
+probe-rs-target.workspace = true
+
+nusb.workspace = true
+tracing = "0.1"
+yaml_serde.workspace = true
+
+[lints]
+workspace = true
