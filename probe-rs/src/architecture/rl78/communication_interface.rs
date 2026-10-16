@@ -36,7 +36,8 @@ pub enum Rl78Error {
     /// on-chip debug option byte (000C3H) enables debugging.
     NoMonitor,
 
-    /// The security ID was rejected. Set the part's ID with PROBE_RS_RL78_SECURITY_ID.
+    /// The security ID was rejected. Set the part's ID with PROBE_RS_RL78_SECURITY_ID (a blank
+    /// part's is FFFFFFFFFFFFFFFFFFFF).
     SecurityIdRejected,
 
     /// The core is running; {0} needs it halted.
@@ -62,6 +63,22 @@ pub enum Rl78Error {
         status: u8,
     },
 
+    /// The flash protocol's {op} answered {status:02X}H (15H NACK, 1AH erase error, 1BH blank
+    /// or verify error).
+    FlashProtocol {
+        /// The command.
+        op: &'static str,
+        /// The status byte.
+        status: u8,
+    },
+    /// The flash protocol wrote the image, but the part's CRC of it is {got:04X}H, not
+    /// {expected:04X}H.
+    FlashCrc {
+        /// The part's CRC.
+        got: u16,
+        /// The image's.
+        expected: u16,
+    },
     /// The probe failed.
     Probe(#[from] DebugProbeError),
 
@@ -113,6 +130,15 @@ pub trait Rl78OcdInterface: Send + fmt::Debug {
     /// A breakpoint does that, but so does a watchdog reset: the syncs are byte-identical (notes
     /// section 28.4), and only the PC tells them apart.
     fn poll_stopped(&mut self) -> Result<Option<Sync>, Rl78Error>;
+
+    /// Erase all of code flash and write `image` from `00000H` over the flash protocol (Protocol
+    /// B's write after erase), then check its CRC. This reaches a part the debugger cannot: one
+    /// that is blank, has an unknown security ID, or has lost its debug stub. The part is left
+    /// in flash programming mode; [`attach`](Self::attach) after.
+    fn erase_all_and_program(&mut self, image: &[u8]) -> Result<(), Rl78Error> {
+        let _ = image;
+        Err(Rl78Error::Unsupported("the flash protocol on this probe"))
+    }
 }
 
 /// A byte pipe to the target's TOOL0 line, plus control of RESET.
@@ -409,5 +435,109 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
         }
         tracing::debug!("rl78: target re-entered the monitor by itself: {buf:02x?}");
         Ok(Some(Sync::from_bytes(&buf)))
+    }
+
+    fn erase_all_and_program(&mut self, image: &[u8]) -> Result<(), Rl78Error> {
+        let started = Instant::now();
+        self.boot_mode_reset()?;
+        // 00H, as on every capture we hold of this board; 36H instead of 06H is the first ACK of
+        // a part with data flash [proto_b:p6].
+        let r = self.pb_xfer(Op::PbModeEntry, &Args::default(), 1)?;
+        pb_status("mode entry", r[0], &[0x06, 0x36])?;
+
+        // 60H answers ACK and the flash size in 256-byte units less one.
+        let r = self.pb_xfer(Op::PbWriteAfterErase, &Args::default(), 2)?;
+        pb_status("write after erase", r[0], &[0x06])?;
+        let size = (usize::from(r[1]) + 1) * 256;
+        if image.len() != size {
+            return Err(Rl78Error::Other(format!(
+                "the flash protocol writes all {size} bytes of code flash; the image has {}",
+                image.len()
+            )));
+        }
+        // The host's ACK starts the erase; its ACK ends it.
+        let ack = self.state.encode(Op::PbAck, &Args::default())?;
+        self.link.write(&ack)?;
+        let status = self.pb_erase_done()?;
+        pb_status("erase", status, &[0x06])?;
+        self.state
+            .apply_response(Op::PbAck, &Args::default(), &[status])?;
+
+        // Four bytes at a time, each answered once programmed; the last answer also carries the
+        // verify's.
+        let groups = image.len() / 4;
+        for (i, group) in image.chunks(4).enumerate() {
+            let last = i + 1 == groups;
+            let args = Args {
+                data: group,
+                ..Args::default()
+            };
+            let r = self.pb_xfer(Op::PbDataGroup, &args, if last { 2 } else { 1 })?;
+            for &status in &r {
+                pb_status("write", status, &[0x06])?;
+            }
+        }
+
+        let r = self.pb_xfer(Op::PbCodeflashCrc, &Args::default(), 2)?;
+        pb_status("CRC check", r[0], &[0x06])?;
+        let r = self.pb_xfer(Op::PbAck, &Args::default(), 3)?;
+        pb_status("CRC check", r[0], &[0x06])?;
+        // Little-endian: checked against a write on the G15 FPB.
+        let got = u16::from_le_bytes([r[1], r[2]]);
+        let expected = protocol::flash_crc(image);
+        if got != expected {
+            return Err(Rl78Error::FlashCrc { got, expected });
+        }
+        tracing::info!(
+            "rl78: wrote {size} bytes over the flash protocol in {:.2?}",
+            started.elapsed()
+        );
+        Ok(())
+    }
+}
+
+/// The longest a write after erase may take to erase the code flash: 208 ms plus 6 ms per KB
+/// [proto_b:p15], 256 ms for 8 KB, with room for a part four times the size.
+const PB_ERASE_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Check a flash-protocol status byte.
+fn pb_status(op: &'static str, status: u8, ok: &[u8]) -> Result<(), Rl78Error> {
+    if ok.contains(&status) {
+        Ok(())
+    } else {
+        Err(Rl78Error::FlashProtocol { op, status })
+    }
+}
+
+impl<L: Rl78Uart> UartOcd<L> {
+    /// A flash-protocol exchange: the status bytes are the caller's to check.
+    fn pb_xfer(&mut self, op: Op, args: &Args, want: usize) -> Result<Vec<u8>, Rl78Error> {
+        let req = self.state.encode(op, args)?;
+        self.link.write(&req)?;
+        let mut resp = vec![0; want];
+        self.read_exact(&mut resp, op.name(), REPLY_TIMEOUT)?;
+        self.state.apply_response(op, args, &resp)?;
+        Ok(resp)
+    }
+
+    /// Wait out the erase. The Python tool saw `FFH` bytes before the ACK, reading the line
+    /// while e2 studio purged it; they are skipped.
+    fn pb_erase_done(&mut self) -> Result<u8, Rl78Error> {
+        let deadline = Instant::now() + PB_ERASE_TIMEOUT;
+        loop {
+            let mut b = [0];
+            let left = deadline.saturating_duration_since(Instant::now());
+            if self.link.read(&mut b, left)? == 0 {
+                if left.is_zero() {
+                    return Err(Rl78Error::Timeout {
+                        op: "erase",
+                        got: 0,
+                        expected: 1,
+                    });
+                }
+            } else if b[0] != 0xFF {
+                return Ok(b[0]);
+            }
+        }
     }
 }

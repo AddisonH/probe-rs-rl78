@@ -211,7 +211,7 @@ impl Session {
         // Use ARM DAP path when the target connects via SWD/DAP: either ARM cores or RISC-V cores
         // over mem-AP (e.g. RP235x_riscv).
         let mut session = if target.default_core().core_type.architecture() == Architecture::Rl78 {
-            Self::attach_rl78(probe, target, cores)?
+            Self::attach_rl78(probe, target, &permissions, cores)?
         } else if target.default_core().memory_ap().is_some() {
             Self::attach_arm_debug_interface(probe, target, attach_method, permissions, cores)?
         } else {
@@ -557,6 +557,7 @@ impl Session {
     fn attach_rl78(
         mut probe: Probe,
         target: Target,
+        permissions: &Permissions,
         mut cores: Vec<CombinedCoreState>,
     ) -> Result<Self, Error> {
         if cores.len() != 1 {
@@ -572,7 +573,11 @@ impl Session {
             }));
         }
         probe.attach_to_unspecified()?;
-        let sync = probe.try_get_rl78_interface()?.attach()?;
+        let sync = crate::architecture::rl78::attach_or_recover(
+            probe.try_get_rl78_interface()?,
+            &target,
+            permissions,
+        )?;
         cores[0].rl78_state_mut().attached(sync);
 
         Ok(Session {

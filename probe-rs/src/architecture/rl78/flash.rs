@@ -11,10 +11,14 @@ use std::{borrow::Cow, ops::Range, time::Duration};
 use probe_rs_target::MemoryRegion;
 
 use super::{
-    Rl78, STUB_BUF, STUB_BUF_SIZE, communication_interface::Rl78Error, protocol::SECURITY_ID_LEN,
+    Rl78, STUB_BUF, STUB_BUF_SIZE,
+    communication_interface::{Rl78Error, Rl78OcdInterface},
+    protocol::{SECURITY_ID_LEN, Sync},
 };
 use crate::{
-    CoreInterface, Error, MemoryInterface, flashing::DebugFlashSequence, session::Session,
+    CoreInterface, Error, MemoryInterface, Target,
+    flashing::DebugFlashSequence,
+    session::{Permissions, Session},
 };
 
 /// Run one flash sequencer command (§7.1). Assembled with rl-rs's `llvm-mc`:
@@ -309,21 +313,6 @@ impl Rl78Flash {
         }
     }
 
-    /// The code flash: the NVM region at 00000H.
-    fn code_flash(session: &Session) -> Result<Range<u32>, Error> {
-        session
-            .target()
-            .memory_map
-            .iter()
-            .find_map(|region| match region {
-                MemoryRegion::Nvm(nvm) if nvm.range.start == 0 => {
-                    Some(nvm.range.start as u32..nvm.range.end as u32)
-                }
-                _ => None,
-            })
-            .ok_or_else(|| Error::Other("the target has no code flash at 00000H".into()))
-    }
-
     /// `data` for `address` as it goes into flash: the image's first page with the session's
     /// security ID and the debug stub added where it leaves room for them. `report` logs what
     /// was done (once, when programming; not again when verifying).
@@ -392,6 +381,63 @@ impl Rl78Flash {
     }
 }
 
+/// The code flash: the NVM region at 00000H.
+fn code_flash(target: &Target) -> Result<Range<u32>, Error> {
+    target
+        .memory_map
+        .iter()
+        .find_map(|region| match region {
+            MemoryRegion::Nvm(nvm) if nvm.range.start == 0 => {
+                Some(nvm.range.start as u32..nvm.range.end as u32)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| Error::Other("the target has no code flash at 00000H".into()))
+}
+
+/// Erased code flash the debugger can attach to: the debug stub with the reset vector on it,
+/// the session's security ID, and the option bytes e2 studio writes with them (§4, §31). This is
+/// e2 studio's own monitor image: the stub branches to `0FFFFH`, so the part stops in the
+/// monitor whenever it boots, until a program is flashed.
+fn monitor_image(size: usize, security_id: [u8; SECURITY_ID_LEN]) -> Vec<u8> {
+    let mut image = vec![0xFF; size];
+    image[..2].copy_from_slice(&(DEBUG_STUB_AT as u16).to_le_bytes());
+    image[0xC2] = 0xF9;
+    image[OCD_OPTION] = 0x8F;
+    image[SECURITY_ID].copy_from_slice(&security_id);
+    image[DEBUG_STUB_AT..DEBUG_STUB_AT + DEBUG_STUB.len()].copy_from_slice(&DEBUG_STUB);
+    image
+}
+
+/// Attach, and if the debugger cannot reach the part (it is blank, its security ID is not the
+/// session's, or its debug stub is gone) and erasing it is permitted, recover it over the flash
+/// protocol: erase all of code flash and write [`monitor_image`], then attach again. Without
+/// the permission, say how to give it.
+pub(crate) fn attach_or_recover(
+    interface: &mut dyn Rl78OcdInterface,
+    target: &Target,
+    permissions: &Permissions,
+) -> Result<Sync, Error> {
+    let error = match interface.attach() {
+        Ok(sync) => return Ok(sync),
+        Err(e @ (Rl78Error::NoMonitor | Rl78Error::SecurityIdRejected)) => e,
+        Err(e) => return Err(e.into()),
+    };
+    if permissions.erase_all().is_err() {
+        return Err(Error::MissingPermissions(format!(
+            "{error} To erase all of code flash over the flash protocol and make the part \
+             attachable again, allow erase-all (--allow-erase-all)"
+        )));
+    }
+    tracing::warn!(
+        "rl78: {error} Erase-all is allowed: erasing all of code flash over the flash protocol"
+    );
+    let flash = code_flash(target)?;
+    let image = monitor_image(flash.len(), interface.security_id());
+    interface.erase_all_and_program(&image)?;
+    Ok(interface.attach()?)
+}
+
 impl DebugFlashSequence for Rl78Flash {
     fn prepare_flash(&self, session: &mut Session) -> Result<(), Error> {
         let mut core = session.get_rl78_core()?;
@@ -402,7 +448,7 @@ impl DebugFlashSequence for Rl78Flash {
     }
 
     fn erase_all(&self, session: &mut Session) -> Result<(), Error> {
-        let flash = Self::code_flash(session)?;
+        let flash = code_flash(session.target())?;
         session.get_rl78_core()?.flash_erase(flash)
     }
 

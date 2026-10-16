@@ -38,6 +38,7 @@ pub mod registers;
 pub mod sequences;
 
 pub use flash::Rl78Flash;
+pub(crate) use flash::attach_or_recover;
 
 #[cfg(test)]
 mod scripted;

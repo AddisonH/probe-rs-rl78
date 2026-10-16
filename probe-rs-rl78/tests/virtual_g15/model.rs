@@ -25,9 +25,11 @@
 //!   answer off, and what is left arrives after the next flush (§47.2).
 //! - The code flash sequencer (§7.1): write and block erase, with the error flags. A command the
 //!   manual does not allow panics, as a driver bug.
+//! - Protocol B on code flash [proto_b]: the `00H` mode byte, `60H` write after erase and `53H`
+//!   CRC check, as Renesas Flash Programmer drives them (`g15_rfp`).
 //!
-//! Not modelled: Protocol B, pseudo-RRM/DMM (path B's other commands), interrupts, other
-//! peripherals, data flash, and §48.3's slowdown after a `CAH` attach.
+//! Not modelled: Protocol B on data flash, pseudo-RRM/DMM (path B's other commands), interrupts,
+//! other peripherals, and §48.3's slowdown after a `CAH` attach.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -120,6 +122,22 @@ enum Mode {
     Sleeping,
     /// In the monitor's path A command loop.
     Monitor,
+    /// In the boot ROM's flash loader, after a Protocol B mode byte.
+    FlashLoader(Loader),
+}
+
+/// Where the flash loader is in a command [proto_b:p9-p13].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Loader {
+    Command,
+    /// `60H` answered; the host's ACK starts the erase.
+    EraseAck,
+    /// Four-byte groups, up to the end of code flash.
+    Data {
+        at: u32,
+    },
+    /// `53H` answered; the host's ACK fetches the CRC.
+    CrcAck,
 }
 
 /// The target. Tests hold a [`VirtualG15`] handle to it; so does the probe.
@@ -144,6 +162,10 @@ pub struct Model {
     pub resets: u32,
     /// Booted through the boot ROM's `CAH` route rather than from the reset vector.
     debug_boot: bool,
+    /// Code flash erased and written over Protocol B, for tests.
+    pub flash_protocol_writes: u32,
+    /// Program one bit wrong in the next Protocol B write, as a failing cell would.
+    pub flash_protocol_fault: bool,
 }
 
 /// The peripherals the debugger meets: the program's stores to `WDTE` (the register itself keeps
@@ -292,6 +314,8 @@ impl Model {
             wdt_mark: 0,
             resets: 0,
             debug_boot: false,
+            flash_protocol_writes: 0,
+            flash_protocol_fault: false,
         }
     }
 
@@ -724,9 +748,14 @@ impl Model {
             Mode::Reset => {}
             Mode::BootSerial => match byte {
                 0xCA => self.ca_entry(),
-                0x00 | 0x3A => panic!("virtual G15: Protocol B is not modelled"),
+                0x00 | 0x3A => {
+                    // A part with data flash answers its first ACK as 36H [proto_b:p6].
+                    self.send(&[0x36]);
+                    self.mode = Mode::FlashLoader(Loader::Command);
+                }
                 _ => {}
             },
+            Mode::FlashLoader(state) => self.flash_loader(state, byte),
             Mode::Monitor => self.monitor_rx(byte),
             Mode::Running | Mode::Sleeping => {
                 if !self.armed() {
@@ -742,6 +771,66 @@ impl Model {
                 // Otherwise path B returns at once and says nothing (0EFE97H).
             }
         }
+    }
+
+    /// Protocol B, one byte at a time. The answers are what `g15_rfp` shows the G15 sending:
+    /// `60H` and `53H` give ACK and 1FH (8 KB in 256-byte units, less one).
+    fn flash_loader(&mut self, state: Loader, byte: u8) {
+        const ACK: u8 = 0x06;
+        let size_code = (FLASH_SIZE / 256 - 1) as u8;
+        self.mode = Mode::FlashLoader(match (state, byte) {
+            (Loader::Command, 0x60) => {
+                self.send(&[ACK, size_code]);
+                Loader::EraseAck
+            }
+            (Loader::Command, 0x53) => {
+                self.send(&[ACK, size_code]);
+                Loader::CrcAck
+            }
+            (Loader::Command, 0x54 | 0x63) => {
+                panic!("virtual G15: Protocol B on data flash is not modelled")
+            }
+            (Loader::Command, _) => {
+                self.send(&[0x04]); // command number error [proto_b:p6]
+                Loader::Command
+            }
+            (Loader::EraseAck, ACK) => {
+                self.poke(0, &[0xFF; FLASH_SIZE as usize]);
+                self.send(&[ACK]);
+                Loader::Data { at: 0 }
+            }
+            (Loader::CrcAck, ACK) => {
+                let crc = flash_crc(&self.cpu.mem.b[..FLASH_SIZE as usize]);
+                self.send(&[ACK]);
+                self.send(&crc.to_le_bytes());
+                Loader::Command
+            }
+            (Loader::EraseAck | Loader::CrcAck, b) => {
+                panic!("virtual G15: {b:02X}H where Protocol B wants the host's ACK")
+            }
+            (Loader::Data { at }, b) => {
+                self.args.push(b);
+                if self.args.len() < 4 {
+                    Loader::Data { at }
+                } else {
+                    let mut group = std::mem::take(&mut self.args);
+                    if at == 0x100 && std::mem::take(&mut self.flash_protocol_fault) {
+                        group[0] ^= 0x01;
+                    }
+                    self.poke(at, &group);
+                    self.send(&[ACK]);
+                    let at = at + 4;
+                    if at < FLASH_SIZE {
+                        Loader::Data { at }
+                    } else {
+                        // The last group's ACK, then the verify's.
+                        self.send(&[ACK]);
+                        self.flash_protocol_writes += 1;
+                        Loader::Command
+                    }
+                }
+            }
+        });
     }
 
     /// The boot ROM's `CAH` route into the monitor (§4, §27.5).
@@ -783,6 +872,12 @@ impl VirtualG15 {
         m.poke(WDT_OPTION, &[0xEE, 0xFF, 0xF9, 0x8F]);
         m.poke(SECURITY_ID, &[0; 10]);
         Self(Arc::new(Mutex::new(m)))
+    }
+
+    /// A G15 straight from the factory: every byte of code flash erased, the option bytes and
+    /// the security ID included.
+    pub fn blank() -> Self {
+        Self(Arc::new(Mutex::new(Model::new())))
     }
 
     /// The model. A test that panicked holding it leaves it poisoned; the session's teardown
@@ -844,6 +939,7 @@ impl Rl78Uart for VirtualG15 {
         } else if m.mode == Mode::Reset {
             if m.tool0_low {
                 m.expect = Expect::Command;
+                m.args.clear();
                 m.mode = Mode::BootSerial;
             } else {
                 m.boot();
@@ -869,4 +965,23 @@ impl Rl78Uart for VirtualG15 {
         m.rx.extend(late);
         Ok(())
     }
+}
+
+/// Protocol B's CRC [proto_b:p14]: CRC-16/CCITT from zero over four-byte groups, each taken last
+/// byte first.
+fn flash_crc(data: &[u8]) -> u16 {
+    let mut crc = 0u16;
+    for group in data.chunks(4) {
+        for &byte in group.iter().rev() {
+            crc ^= u16::from(byte) << 8;
+            for _ in 0..8 {
+                crc = if crc & 0x8000 != 0 {
+                    (crc << 1) ^ 0x1021
+                } else {
+                    crc << 1
+                };
+            }
+        }
+    }
+    crc
 }

@@ -548,6 +548,23 @@ impl State {
     }
 }
 
+/// The checksum Protocol B's CRC check commands return [proto_b:p14]: CRC-16/CCITT (polynomial
+/// 1021H, initial value 0), over memory read in four-byte groups and taken last byte first
+/// within each group.
+pub fn flash_crc(data: &[u8]) -> u16 {
+    data.chunks(4)
+        .flat_map(|group| group.iter().rev())
+        .fold(0u16, |crc, &byte| {
+            (0..8).fold(crc ^ (u16::from(byte) << 8), |c, _| {
+                if c & 0x8000 != 0 {
+                    (c << 1) ^ 0x1021
+                } else {
+                    c << 1
+                }
+            })
+        })
+}
+
 #[cfg(test)]
 mod tests {
     //! One case per operation, with the bytes the RL78/G15 actually exchanges. Section numbers
@@ -822,6 +839,21 @@ mod tests {
             ocd(true).encode(Op::PbCodeflashCrc, &a),
             Err(CodecError::State(_))
         ));
+    }
+
+    #[test]
+    fn flash_crc_matches_the_manuals_table() {
+        // [proto_b:p14] `CRC16_Tab`: from a zero CRC, one byte b gives entry b. A group is taken
+        // last byte first, so b leads its group to come last.
+        for (b, entry) in [
+            (0x01, 0x1021),
+            (0x80, 0x9188),
+            (0xA7, 0xC50D),
+            (0xFF, 0x1EF0),
+        ] {
+            assert_eq!(flash_crc(&[b, 0, 0, 0]), entry, "{b:02X}H");
+        }
+        assert_ne!(flash_crc(&[0, 0, 0, 1]), 0x1021, "order within a group");
     }
 
     #[test]

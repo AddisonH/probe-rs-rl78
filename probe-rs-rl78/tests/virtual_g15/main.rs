@@ -14,7 +14,7 @@ use model::VirtualG15;
 use probe_rs::{
     Core, CoreStatus, Error, HaltReason, MemoryInterface, Permissions, RegisterId, Session,
     architecture::rl78::{communication_interface::Rl78Error, registers::*},
-    flashing::DownloadOptions,
+    flashing::{DownloadOptions, FlashProgress},
     probe::Probe,
 };
 use probe_rs_rl78::com::ComProbe;
@@ -43,12 +43,18 @@ fn session(g15: &VirtualG15) -> Session {
 }
 
 fn session_with_id(g15: &VirtualG15, security_id: [u8; 10]) -> Session {
+    attach(g15, security_id, Permissions::default()).expect("attach to the virtual G15")
+}
+
+fn attach(
+    g15: &VirtualG15,
+    security_id: [u8; 10],
+    permissions: Permissions,
+) -> Result<Session, Error> {
     static REGISTER: Once = Once::new();
     REGISTER.call_once(probe_rs_rl78::register_plugin);
     let probe = ComProbe::new(g15.clone(), security_id);
-    Probe::from_specific_probe(Box::new(probe))
-        .attach("R5F12068", Permissions::default())
-        .expect("attach to the virtual G15")
+    Probe::from_specific_probe(Box::new(probe)).attach("R5F12068", permissions)
 }
 
 fn reg(core: &mut Core<'_>, id: u16) -> u64 {
@@ -402,6 +408,107 @@ fn continue_after_attach_boots_the_program() {
     core.run().unwrap();
     g15.run_for_ms(1);
     assert_eq!(core.halt(Duration::from_millis(100)).unwrap().pc, 0xDC);
+}
+
+/// e2 studio's monitor image (§4, §31): the reset vector on the debug stub, which branches to
+/// `0FFFFH`, the option bytes it writes, and the session's security ID.
+fn assert_monitor_image(g15: &VirtualG15, id: [u8; 10]) {
+    assert_eq!(peek(g15, 0x0000, 2), [0xCE, 0x00]);
+    assert_eq!(peek(g15, 0x00C0, 4), [0xFF, 0xFF, 0xF9, 0x8F]);
+    assert_eq!(peek(g15, 0x00C4, 10), id);
+    assert_eq!(
+        peek(g15, 0x00CE, 10),
+        [0xCF, 0x80, 0x00, 0xC5, 0xCE, 0xAF, 0x40, 0xED, 0xFF, 0xFF]
+    );
+    let m = g15.lock();
+    let rest = (0x00D8..model::FLASH_SIZE).all(|a| m.peek(a) == 0xFF);
+    assert!(rest, "the rest erased");
+}
+
+/// A part whose security ID is not the session's cannot be unlocked. Erasing it is the only way
+/// in, and probe-rs erases only when told it may.
+#[test]
+fn locked_part_is_not_erased_without_permission() {
+    let g15 = VirtualG15::new();
+    g15.lock().poke(0x00C4, &[0x11; 10]);
+    let error = attach(&g15, [0; 10], Permissions::default()).unwrap_err();
+    assert!(matches!(error, Error::MissingPermissions(_)), "{error}");
+    assert!(error.to_string().contains("--allow-erase-all"), "{error}");
+    assert_eq!(g15.lock().flash_protocol_writes, 0);
+    assert_eq!(peek(&g15, 0x00C4, 10), [0x11; 10]);
+}
+
+/// With erase-all permitted, the flash protocol erases the part and writes a monitor image with
+/// the session's ID (Protocol B, [proto_b]), and the attach goes through.
+#[test]
+fn locked_part_is_recovered_with_erase_all() {
+    let g15 = VirtualG15::new();
+    g15.lock().poke(0x00C4, &[0x11; 10]);
+    g15.lock().poke(0x1C00, b"program");
+    let id = [0x22; 10];
+    let mut session = attach(&g15, id, Permissions::new().allow_erase_all()).unwrap();
+    assert_eq!(g15.lock().flash_protocol_writes, 1);
+    assert_monitor_image(&g15, id);
+    let mut core = session.core(0).unwrap();
+    assert!(core.core_halted().unwrap());
+    assert_eq!(reg(&mut core, PC_ID), IDLE_LOOP);
+}
+
+/// A blank part is recovered the same way, and then flashes and runs like any other.
+#[test]
+fn blank_part_is_recovered_then_flashed() {
+    let g15 = VirtualG15::blank();
+    let mut session = attach(&g15, [0; 10], Permissions::new().allow_erase_all()).unwrap();
+    assert_monitor_image(&g15, [0; 10]);
+
+    flash(&mut session, &image(&SPIN), false);
+    assert_eq!(
+        g15.lock().flash_protocol_writes,
+        1,
+        "flashing is self-programming"
+    );
+    let mut core = session.core(0).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    core.run().unwrap();
+    g15.run_for_ms(10);
+    assert_eq!(core.halt(Duration::from_millis(100)).unwrap().pc, 0xDC);
+}
+
+/// The part's own CRC of what it wrote is checked against the image's.
+#[test]
+fn recovery_checks_the_crc() {
+    let g15 = VirtualG15::blank();
+    g15.lock().flash_protocol_fault = true;
+    let error = attach(&g15, [0; 10], Permissions::new().allow_erase_all()).unwrap_err();
+    assert!(
+        matches!(error, Error::Rl78(Rl78Error::FlashCrc { .. })),
+        "{error:?}"
+    );
+}
+
+/// `probe-rs erase` runs through the flash sequence: there is no flash algorithm to load.
+#[test]
+fn erase_all_through_the_sequence() {
+    let g15 = VirtualG15::new();
+    g15.lock().poke(0x1C00, b"program");
+    let mut session = session(&g15);
+    probe_rs::flashing::erase_all(&mut session, &mut FlashProgress::empty(), false).unwrap();
+    assert_eq!(g15.lock().flash().blocks_erased, 8);
+    assert!(peek(&g15, 0, model::FLASH_SIZE).iter().all(|&b| b == 0xFF));
+    drop(session);
+
+    // Blank, the part unlocks with the erased ID.
+    attach(&g15, [0xFF; 10], Permissions::default()).unwrap();
+}
+
+/// A part that attaches is never erased, permitted or not.
+#[test]
+fn attachable_part_is_not_erased() {
+    let g15 = VirtualG15::new();
+    g15.lock().poke(0x1C00, b"program");
+    attach(&g15, [0; 10], Permissions::new().allow_erase_all()).unwrap();
+    assert_eq!(g15.lock().flash_protocol_writes, 0);
+    assert_eq!(peek(&g15, 0x1C00, 7), b"program");
 }
 
 #[test]
