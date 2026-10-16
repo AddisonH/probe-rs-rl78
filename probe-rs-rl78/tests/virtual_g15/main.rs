@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use model::VirtualG15;
 use probe_rs::{
-    Core, CoreStatus, Error, HaltReason, MemoryInterface, Permissions, RegisterId, Session,
+    BreakpointCause, Core, CoreStatus, Error, HaltReason, MemoryInterface, Permissions, RegisterId,
+    Session,
     architecture::rl78::{communication_interface::Rl78Error, registers::*},
     flashing::{DownloadOptions, FlashProgress},
     probe::Probe,
@@ -181,16 +182,71 @@ fn bank_0_is_rebuilt_with_the_program_in_bank_1() {
     assert_ne!(raw, bank0);
 }
 
-/// An `FFH` traps into the monitor; the frame holds the address after it (§24, §27.5).
+/// The register banks are memory (`FFEE0H`-`FFEFFH`), and memory there is the program's
+/// registers. Bank 0's RAM is the monitor's own registers while it runs (§47.4, §12.3), so a
+/// direct write would land in the HL and B of the very loop doing the write.
+#[test]
+fn register_banks_through_memory() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    let mut core = session.core(0).unwrap();
+    // `movw ax, hl` / `movw !0xffe40, ax` / `movw ax, de` / `movw !0xffe42, ax` / FFH
+    load(
+        &mut core,
+        &[0x17, 0xBF, 0x40, 0xFE, 0x15, 0xBF, 0x42, 0xFE, 0xFF],
+    );
+    let sfrs = peek(&g15, 0xF_FF00, 0x100);
+
+    // Bank 0's E, D, L, H, as a memory test writes the last word of RAM.
+    core.write_8(0xF_FEFC, &[0xAC, 0xAB, 0x34, 0x12]).unwrap();
+    // Bank 3's X, from the other end.
+    core.write_8(0xF_FEE0, &[0x5A]).unwrap();
+    let mut back = [0; 4];
+    core.read_8(0xF_FEFC, &mut back).unwrap();
+    assert_eq!(back, [0xAC, 0xAB, 0x34, 0x12]);
+    assert_eq!(reg(&mut core, PAIR_BASE + 3), 0x1234, "HL");
+    assert_eq!(reg(&mut core, 3 * 8), 0x5A, "bank 3's X");
+
+    core.run().unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    assert_eq!(
+        g15.lock().peek16(COUNTER as u32),
+        0x1234,
+        "the program's HL"
+    );
+    assert_eq!(
+        g15.lock().peek16(COUNTER as u32 + 2),
+        0xABAC,
+        "the program's DE"
+    );
+    assert_eq!(g15.lock().peek(0xF_FEE0), 0x5A);
+    assert_eq!(
+        peek(&g15, 0xF_FF00, 0x100),
+        sfrs,
+        "nothing written past the banks"
+    );
+}
+
+/// An `FFH` traps into the monitor with the address after it in the frame (§24, §27.5). One the
+/// program holds itself is a software breakpoint, with the PC on it as on ARM's `BKPT`; moved
+/// past it, the program goes on.
 #[test]
 fn ffh_traps_into_the_monitor() {
     let g15 = VirtualG15::new();
     let mut session = session(&g15);
     let mut core = session.core(0).unwrap();
-    load(&mut core, &[0x00, 0xFF, 0x00]); // nop; FFH; nop
+    load(&mut core, &[0x00, 0xFF, 0x00, 0xFF]); // nop; FFH; nop; FFH
     core.run().unwrap();
     core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
-    assert_eq!(reg(&mut core, PC_ID), PROG + 2);
+    assert_eq!(reg(&mut core, PC_ID), PROG + 1);
+    assert_eq!(
+        core.status().unwrap(),
+        CoreStatus::Halted(HaltReason::Breakpoint(BreakpointCause::Software))
+    );
+    core.write_core_reg(RegisterId(PC_ID), PROG + 2).unwrap();
+    core.run().unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    assert_eq!(reg(&mut core, PC_ID), PROG + 3);
 }
 
 /// §47.1: after a `CAH` attach the watchdog runs whatever the option byte says. A program that

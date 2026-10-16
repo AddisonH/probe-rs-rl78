@@ -489,6 +489,14 @@ impl<'probe> Rl78<'probe> {
     fn read_bytes(&mut self, address: u64, data: &mut [u8]) -> Result<(), Error> {
         self.read_bytes_raw(address, data)?;
         self.state.breakpoints.hide_traps(address as u32, data);
+        // The register banks as the program has them. In RAM, bank 0 is the monitor's scratch
+        // while it runs (§47.4).
+        if let Some((d, offsets)) = banks_overlap(address as u32, data.len()) {
+            let ctx = self.load_context()?;
+            for (byte, o) in data[d].iter_mut().zip(offsets) {
+                *byte = ctx.regs[usize::from(bank_byte_id(o))] as u8;
+            }
+        }
         Ok(())
     }
 
@@ -526,6 +534,27 @@ impl<'probe> Rl78<'probe> {
                 data.len()
             )));
         }
+        // The register banks are registers: they go into the context, which puts them where
+        // they belong on the way out. Written directly, bank 0 would land in the monitor's own
+        // registers while its write loop runs on them (HL and B, §12.3).
+        if let Some((d, offsets)) = banks_overlap(start, data.len()) {
+            self.write_memory(start, &data[..d.start])?;
+            let ctx = self.load_context()?;
+            for (&byte, o) in data[d.clone()].iter().zip(offsets) {
+                ctx.set(bank_byte_id(o), u32::from(byte));
+            }
+            return self.write_memory(start + d.end as u32, &data[d.end..]);
+        }
+        self.write_memory(start, data)
+    }
+}
+
+impl Rl78<'_> {
+    /// Write memory in the F-segment, outside the register banks.
+    fn write_memory(&mut self, start: u32, data: &[u8]) -> Result<(), Error> {
+        if data.is_empty() {
+            return Ok(());
+        }
         match &mut self.state.ram_shadow {
             // While RAM is borrowed, the user's RAM is the saved copy: change that, and it goes
             // back to the target on resume. Write the rest directly.
@@ -553,14 +582,29 @@ impl<'probe> Rl78<'probe> {
 
 /// Where `len` bytes at `address` overlap RAM: the range within the data, and within RAM.
 fn ram_overlap(address: u32, len: usize) -> Option<(Range<usize>, Range<usize>)> {
-    let lo = address.max(RAM_BASE);
-    let hi = (address + len as u32).min(RAM_BASE + RAM_SIZE as u32);
+    overlap(address, len, RAM_BASE..RAM_BASE + RAM_SIZE as u32)
+}
+
+/// Where `len` bytes at `address` overlap the register banks: the range within the data, and
+/// the offsets from [`BANKS_ADDR`].
+fn banks_overlap(address: u32, len: usize) -> Option<(Range<usize>, Range<usize>)> {
+    overlap(address, len, BANKS_ADDR..BANKS_ADDR + 32)
+}
+
+fn overlap(address: u32, len: usize, area: Range<u32>) -> Option<(Range<usize>, Range<usize>)> {
+    let lo = address.max(area.start);
+    let hi = (address + len as u32).min(area.end);
     (lo < hi).then(|| {
         (
             (lo - address) as usize..(hi - address) as usize,
-            (lo - RAM_BASE) as usize..(hi - RAM_BASE) as usize,
+            (lo - area.start) as usize..(hi - area.start) as usize,
         )
     })
+}
+
+/// The raw register id of the bank byte at `offset` from [`BANKS_ADDR`]: bank 3 is lowest.
+fn bank_byte_id(offset: usize) -> u16 {
+    ((3 - offset / 8) * 8 + offset % 8) as u16
 }
 
 impl MemoryInterface for Rl78<'_> {

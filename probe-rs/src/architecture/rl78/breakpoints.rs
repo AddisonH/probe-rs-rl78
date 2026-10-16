@@ -176,21 +176,30 @@ impl Rl78<'_> {
     }
 
     /// The target stopped by itself. A trap leaves the PC one past it; a trap the debugger
-    /// planted is a breakpoint, and the PC goes back onto it. Anything else is an `FFH` that is
-    /// not ours (erased flash, say) or a reset into the monitor: the wire cannot tell those apart,
-    /// only the PC can (§28.4).
+    /// planted is a breakpoint, and the PC goes back onto it. Otherwise it is an `FFH` in the
+    /// program, or a reset into the monitor: the wire cannot tell those apart, only memory can
+    /// (§28.4). An `FFH` in the program is a software breakpoint, reported like ARM's `BKPT`:
+    /// the PC on it, so a continue traps again until the PC is moved past it.
     pub(super) fn classify_stop(&mut self) -> Result<(), Error> {
         let pc = self.pc()? as u32;
         let at = pc.wrapping_sub(1);
-        if self.state.breakpoints.is_planted(at) {
-            self.load_context()?.set(PC_ID, at);
-            self.state.halt_reason = Some(HaltReason::Breakpoint(BreakpointCause::Hardware));
+        let cause = if self.state.breakpoints.is_planted(at) {
+            BreakpointCause::Hardware
         } else {
-            tracing::info!(
-                "rl78: the target stopped by itself at PC={pc:05X}H, not at a breakpoint: an FFH \
-                 the debugger did not plant (erased flash?), or a reset"
-            );
-        }
+            let mut byte = [0];
+            self.read_bytes_raw(u64::from(at), &mut byte)?;
+            if byte[0] != TRAP {
+                tracing::info!(
+                    "rl78: the target stopped by itself at PC={pc:05X}H, not after an FFH: a \
+                     reset into the monitor?"
+                );
+                return Ok(());
+            }
+            tracing::debug!("rl78: the program's own FFH at {at:05X}H");
+            BreakpointCause::Software
+        };
+        self.load_context()?.set(PC_ID, at);
+        self.state.halt_reason = Some(HaltReason::Breakpoint(cause));
         Ok(())
     }
 

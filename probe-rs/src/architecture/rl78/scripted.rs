@@ -15,7 +15,7 @@ use super::{
     registers::*,
     sequences::DefaultRl78Sequence,
 };
-use crate::{CoreInterface, Error, MemoryInterface, core::RegisterId};
+use crate::{CoreInterface, CoreStatus, Error, HaltReason, MemoryInterface, core::RegisterId};
 
 #[derive(Debug, PartialEq)]
 enum Line {
@@ -341,11 +341,17 @@ fn halt_polls_before_sending_the_halt_byte() {
             .exchange(&[0x5C, 0, 0, 0, 0], &[0x00])
             .unsolicited(&[0, 0, 0, 0, 0])
             .unlock()
-            .context(MONITOR_SP, [0, 0, 0x80, 0xFB, 0x0F, 0x06], [0; 32]);
+            .context(MONITOR_SP, [0, 0, 0x80, 0xFB, 0x0F, 0x06], [0; 32])
+            // Not after an FFH: a reset, not a breakpoint.
+            .read(0xF_FB7F, &[0x00]);
     });
     let mut core = s.core();
     core.run().unwrap();
     assert_eq!(core.halt(Duration::from_millis(100)).unwrap().pc, 0xF_FB80);
+    assert_eq!(
+        core.status().unwrap(),
+        CoreStatus::Halted(HaltReason::Unknown)
+    );
     drop(core);
     s.assert_done();
 }
