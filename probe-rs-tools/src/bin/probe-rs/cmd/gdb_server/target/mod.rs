@@ -341,6 +341,28 @@ fn is_disconnect_error(err: &anyhow::Error) -> bool {
     })
 }
 
+impl RuntimeTarget {
+    /// Wait up to `timeout` for GDB to send something, returning as soon as it does. Sleeping
+    /// the whole time instead adds up to `timeout` to every request GDB makes, and GDB makes a
+    /// dozen or more after each stop.
+    pub(crate) fn wait_for_gdb(&mut self, timeout: Duration) {
+        let conn = match &mut self.gdb {
+            Some(GdbStubStateMachine::Idle(state)) => state.borrow_conn(),
+            Some(GdbStubStateMachine::Running(state)) => state.borrow_conn(),
+            _ => return std::thread::sleep(timeout),
+        };
+        // gdbstub's `peek` leaves the socket non-blocking; this wait needs it blocking.
+        let waited = conn
+            .set_nonblocking(false)
+            .and_then(|()| conn.set_read_timeout(Some(timeout.max(Duration::from_millis(1)))))
+            .and_then(|()| TcpStream::peek(conn, &mut [0]));
+        if let Ok(0) = waited {
+            // Closed: `process` sees it next time round. Do not spin until it does.
+            std::thread::sleep(timeout);
+        }
+    }
+}
+
 fn read_if_available(conn: &mut TcpStream) -> Result<Option<u8>, anyhow::Error> {
     match conn.peek() {
         Ok(p) => match p {

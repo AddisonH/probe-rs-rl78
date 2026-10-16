@@ -110,7 +110,13 @@ pub fn run<'a>(
             wait_time = wait_time.min(target.process()?);
         }
 
-        std::thread::sleep(wait_time.min(Duration::from_millis(100)));
+        let wait_time = wait_time.min(Duration::from_millis(100));
+        match &mut targets[..] {
+            _ if wait_time.is_zero() => {}
+            // One GDB: wait on its socket, so that a request is served the moment it arrives.
+            [target] => target.wait_for_gdb(wait_time),
+            _ => std::thread::sleep(wait_time),
+        }
     }
 }
 
