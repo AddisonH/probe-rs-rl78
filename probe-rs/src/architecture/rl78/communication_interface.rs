@@ -52,6 +52,14 @@ pub enum Rl78Error {
     /// {0} is not supported on RL78 yet.
     Unsupported(&'static str),
 
+    /// {0} while the target runs: only RAM and the SFRs, through pseudo-RRM, and only for a
+    /// program that enables it with a block pointer at 00002H.
+    NotWhileRunning(&'static str),
+
+    /// The running target did not answer pseudo-RRM/DMM's {0}: is the monitor armed, and does
+    /// 00002H point at the program's 4-byte block?
+    RrmUnanswered(&'static str),
+
     /// Flash {op} at {address:05X}H failed: FSASTL error flags {status:02X}H (SEQER 10H, WRER
     /// 02H, ERER 01H).
     Flash {
@@ -138,6 +146,22 @@ pub trait Rl78OcdInterface: Send + fmt::Debug {
     /// section 28.4), and only the PC tells them apart.
     fn poll_stopped(&mut self) -> Result<Option<Sync>, Rl78Error>;
 
+    /// Read RAM or SFRs while the program runs, through the ROM's pseudo-RRM (§27.3, §30): one
+    /// command byte and one reply byte at a time, five per byte read, the program interrupted
+    /// for a few microseconds each. Only `F0000H`-`F07FFH` and `FDF00H`-`FFFFFH`, and only for
+    /// a program that put a block pointer at `00002H`.
+    fn rrm_read(&mut self, address: u32, data: &mut [u8]) -> Result<Rrm, Rl78Error> {
+        let _ = (address, data);
+        Err(Rl78Error::Unsupported("pseudo-RRM on this probe"))
+    }
+
+    /// Write RAM or SFRs while the program runs, through pseudo-DMM: seven bytes per byte, eight
+    /// per aligned word. The same limits as [`rrm_read`](Self::rrm_read).
+    fn rrm_write(&mut self, address: u32, data: &[u8]) -> Result<Rrm, Rl78Error> {
+        let _ = (address, data);
+        Err(Rl78Error::Unsupported("pseudo-DMM on this probe"))
+    }
+
     /// Erase all of code flash and write `image` from `00000H` over the flash protocol (Protocol
     /// B's write after erase), then check its CRC. This reaches a part the debugger cannot: one
     /// that is blank, has an unknown security ID, or has lost its debug stub. The part is left
@@ -146,6 +170,16 @@ pub trait Rl78OcdInterface: Send + fmt::Debug {
         let _ = image;
         Err(Rl78Error::Unsupported("the flash protocol on this probe"))
     }
+}
+
+/// What a pseudo-RRM/DMM access found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rrm {
+    /// Done, the program running throughout.
+    Done,
+    /// The target stopped first (a breakpoint): it answered with its re-entry sync, returned
+    /// for the core to take. The access is incomplete.
+    Stopped(Sync),
 }
 
 /// A byte pipe to the target's TOOL0 line, plus control of RESET.
@@ -183,6 +217,10 @@ const T_SETTLE: Duration = Duration::from_millis(35);
 
 /// How long one reply may take. Replies are at most 257 bytes at 115200 baud, about 25 ms.
 const REPLY_TIMEOUT: Duration = Duration::from_millis(1000);
+/// A pseudo-RRM/DMM reply: one byte from an interrupt handler, plus USB.
+const T_RRM: Duration = Duration::from_millis(30);
+/// Quiet on the line after a stop, before the last sync is taken to be complete.
+const T_RRM_DRAIN: Duration = Duration::from_millis(20);
 /// How long a running program with the monitor armed takes to answer a halt, with room for USB.
 const T_ATTACH_RUNNING: Duration = Duration::from_millis(100);
 
@@ -296,6 +334,149 @@ impl<L: Rl78Uart> UartOcd<L> {
         Ok(())
     }
 
+    /// One pseudo-RRM/DMM command. `expect` is the reply it must have, where that is known:
+    /// anything else came from a target that has stopped, and is the start of its sync. A data
+    /// reply (`expect` `None`) is checked for bytes behind it instead.
+    fn rrm_command(
+        &mut self,
+        op: Op,
+        nibble: u8,
+        expect: impl FnOnce(u8) -> bool,
+        data_reply: bool,
+    ) -> Result<Result<u8, Sync>, Rl78Error> {
+        let args = Args {
+            nibble,
+            ..Args::default()
+        };
+        let req = self.state.encode(op, &args)?;
+        self.link.write(&req)?;
+        let mut reply = [0u8; 1];
+        if let Err(e) = self.read_exact(&mut reply, op.name(), T_RRM) {
+            return Err(match e {
+                Rl78Error::Timeout { got: 0, .. } => Rl78Error::RrmUnanswered(op.name()),
+                e => e,
+            });
+        }
+        let mut more = [0u8; SYNC_LEN];
+        let extra = if data_reply {
+            self.link.read(&mut more, Duration::ZERO)?
+        } else {
+            0
+        };
+        if extra > 0 || !expect(reply[0]) {
+            let mut got = vec![reply[0]];
+            got.extend_from_slice(&more[..extra]);
+            return Ok(Err(self.rrm_stopped(got)?));
+        }
+        self.state.apply_response(op, &args, &reply)?;
+        Ok(Ok(reply[0]))
+    }
+
+    /// The target answered a pseudo-RRM command with something else: it stopped, and `got` is
+    /// the start of its re-entry sync. Our commands after that went to a locked monitor, which
+    /// answers each with the sync again (§16.2); the first is the one with the program's B, C,
+    /// H and L.
+    fn rrm_stopped(&mut self, mut got: Vec<u8>) -> Result<Sync, Rl78Error> {
+        if got.len() < SYNC_LEN {
+            let have = got.len();
+            got.resize(SYNC_LEN, 0);
+            self.read_exact(&mut got[have..], "sync after pseudo-RRM", REPLY_TIMEOUT)?;
+        }
+        let mut drain = [0u8; 64];
+        while self.link.read(&mut drain, T_RRM_DRAIN)? > 0 {}
+        if got[SYNC_LEN - 1] != 0x00 {
+            return Err(CodecError::Protocol("sync after pseudo-RRM").into());
+        }
+        self.state.locked = true;
+        self.state.rrm_c = 0;
+        tracing::debug!("rl78: the target stopped during pseudo-RRM");
+        Ok(Sync::from_bytes(&got))
+    }
+
+    /// Bring the ROM's counter back to zero after a command went unanswered: `D0H` reads (and
+    /// answers) if the count is four, and otherwise fails its gate, which zeroes it silently.
+    fn rrm_resync(&mut self) -> Result<(), Rl78Error> {
+        self.link.write(&[0xD0])?;
+        let mut drain = [0u8; 64];
+        while self.link.read(&mut drain, T_RRM_DRAIN)? > 0 {}
+        self.state.rrm_c = 0;
+        Ok(())
+    }
+
+    /// Shift a 16-bit address into the ROM's accumulator, most significant nibble first. Each
+    /// reply is the accumulator's low byte: of the first, only its low nibble is ours.
+    fn rrm_address(&mut self, address: u16) -> Result<Option<Sync>, Rl78Error> {
+        for k in (0..4).rev() {
+            let nibble = (address >> (4 * k)) as u8 & 0x0F;
+            let low = (address >> (4 * k)) as u8;
+            let expect = move |r: u8| if k == 3 { r & 0x0F == nibble } else { r == low };
+            if let Err(sync) = self.rrm_command(Op::RrmAddrNibble, nibble, expect, false)? {
+                return Ok(Some(sync));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Shift data nibbles in, most significant first. Each reply is the nibble over the count.
+    fn rrm_data(&mut self, nibbles: &[u8]) -> Result<Option<Sync>, Rl78Error> {
+        for &nibble in nibbles {
+            let c = self.state.rrm_c + 1;
+            let expect = move |r: u8| r == nibble << 4 | c;
+            if let Err(sync) = self.rrm_command(Op::RrmDataNibble, nibble, expect, false)? {
+                return Ok(Some(sync));
+            }
+        }
+        Ok(None)
+    }
+
+    /// One pseudo-RRM/DMM access, tried again once after a failure. The ROM's counter lives in
+    /// the program's RAM, and a block nobody zeroed, or an earlier access cut short, leaves it
+    /// wrong: the first terminator then fails its gate and goes unanswered, which zeroes it.
+    fn rrm_retry<T>(
+        &mut self,
+        mut access: impl FnMut(&mut Self) -> Result<Result<T, Sync>, Rl78Error>,
+    ) -> Result<Result<T, Sync>, Rl78Error> {
+        match access(self) {
+            Err(e) => {
+                tracing::debug!("rl78: pseudo-RRM failed ({e}); trying again");
+                self.rrm_resync()?;
+                access(self)
+            }
+            done => done,
+        }
+    }
+
+    fn rrm_read_byte(&mut self, address: u16) -> Result<Result<u8, Sync>, Rl78Error> {
+        if let Some(sync) = self.rrm_address(address)? {
+            return Ok(Err(sync));
+        }
+        self.rrm_command(Op::RrmReadByte, 0, |_| true, true)
+    }
+
+    /// One byte, or an aligned pair as a word: n1 n2 are the high byte and n3 n4 the low, and
+    /// n4 rides in the `9xH` that commits (§30).
+    fn rrm_write_once(&mut self, address: u16, data: &[u8]) -> Result<Result<(), Sync>, Rl78Error> {
+        if let Some(sync) = self.rrm_address(address)? {
+            return Ok(Err(sync));
+        }
+        let (nibbles, commit, nibble, ack) = match *data {
+            [low, high] => (
+                vec![high >> 4, high & 0x0F, low >> 4],
+                Op::RrmWriteWord,
+                low & 0x0F,
+                0xDA,
+            ),
+            [value] => (vec![value >> 4, value & 0x0F], Op::RrmWriteByte, 0, 0xD9),
+            _ => unreachable!("one byte or a word"),
+        };
+        if let Some(sync) = self.rrm_data(&nibbles)? {
+            return Ok(Err(sync));
+        }
+        Ok(self
+            .rrm_command(commit, nibble, |r| r == ack, false)?
+            .map(|_| ()))
+    }
+
     fn chunks(address: u32, len: usize) -> impl Iterator<Item = (u32, std::ops::Range<usize>)> {
         (0..len)
             .step_by(256)
@@ -350,6 +531,36 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
 
     fn security_id(&self) -> [u8; SECURITY_ID_LEN] {
         self.security_id
+    }
+
+    fn rrm_read(&mut self, address: u32, data: &mut [u8]) -> Result<Rrm, Rl78Error> {
+        for (i, byte) in data.iter_mut().enumerate() {
+            let a = (address as usize + i) as u16;
+            match self.rrm_retry(|ocd| ocd.rrm_read_byte(a))? {
+                Ok(value) => *byte = value,
+                Err(sync) => return Ok(Rrm::Stopped(sync)),
+            }
+        }
+        Ok(Rrm::Done)
+    }
+
+    fn rrm_write(&mut self, address: u32, data: &[u8]) -> Result<Rrm, Rl78Error> {
+        let mut at = 0;
+        while at < data.len() {
+            let a = (address as usize + at) as u16;
+            // An aligned pair goes as one word, which the ROM stores in one go.
+            let n = if a.is_multiple_of(2) && at + 1 < data.len() {
+                2
+            } else {
+                1
+            };
+            let bytes = &data[at..at + n];
+            if let Err(sync) = self.rrm_retry(|ocd| ocd.rrm_write_once(a, bytes))? {
+                return Ok(Rrm::Stopped(sync));
+            }
+            at += n;
+        }
+        Ok(Rrm::Done)
     }
 
     fn unlock(&mut self) -> Result<(), Rl78Error> {

@@ -475,6 +475,7 @@ impl DebugFlashSequence for Rl78Flash {
         // The halted program is about to be replaced: resuming it at the end of the session
         // would run new code from an old PC.
         core.state.resume_at_detach = false;
+        core.forget_rrm();
         Ok(())
     }
 

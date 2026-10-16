@@ -168,6 +168,11 @@ pub struct Model {
     pub flash_protocol_fault: bool,
     /// Routines run behind `5BH`, for tests.
     pub calls: u32,
+    /// Path B's data accumulator. The ROM keeps it in the block's bytes 0 and 1; only what it
+    /// assembles matters here.
+    rrm_data: u16,
+    /// Path B commands answered, for tests.
+    pub rrm_commands: u32,
 }
 
 /// The peripherals the debugger meets: the program's stores to `WDTE` (the register itself keeps
@@ -319,6 +324,8 @@ impl Model {
             flash_protocol_writes: 0,
             flash_protocol_fault: false,
             calls: 0,
+            rrm_data: 0,
+            rrm_commands: 0,
         }
     }
 
@@ -422,6 +429,61 @@ impl Model {
         self.peek(ENGINE_MODE) == 0xC5
             && self.peek(OCD_CTRL) & 0x40 != 0
             && (self.debug_boot || self.peek(OCD_OPTION) & 0x0A == 0x0A)
+    }
+
+    /// Path B, pseudo-RRM/DMM (§27.3): one command a byte, at most one reply a byte, the program
+    /// not stopped. The counter and the address live in the four-byte block `00002H` points at;
+    /// a terminator at the wrong count, or an address outside the two windows, zeroes the
+    /// counter and answers nothing.
+    fn path_b(&mut self, byte: u8) {
+        let block = 0xF_0000 | u32::from(self.peek16(0x0002));
+        let c = self.peek(block) & 0x0F;
+        let addr = self.peek16(block + 2);
+        let set_c = |m: &mut Self, c: u8| {
+            let b0 = m.peek(block) & 0xF0 | c & 0x0F;
+            m.cpu.mem.poke(block, &[b0]);
+        };
+        let target = 0xF_0000 | u32::from(addr);
+        let in_window = addr < 0x0800 || addr >= 0xDF00;
+        let x = byte & 0x0F;
+        self.rrm_commands += 1;
+        match byte {
+            0xA0..=0xAF => {
+                let addr = addr << 4 | u16::from(x);
+                self.cpu.mem.poke(block + 2, &addr.to_le_bytes());
+                set_c(self, c + 1);
+                self.send(&[addr as u8]);
+            }
+            0xB0..=0xBF => {
+                self.rrm_data = self.rrm_data << 4 | u16::from(x);
+                set_c(self, c + 1);
+                self.send(&[x << 4 | (c + 1) & 0x0F]);
+            }
+            0xD0 | 0xD1 if c == 4 && in_window => {
+                set_c(self, 0);
+                let low = self.peek(target);
+                if byte == 0xD1 {
+                    // The high byte waits in the block's byte 1 (§30).
+                    let high = self.peek(target + 1);
+                    self.cpu.mem.poke(block + 1, &[high]);
+                }
+                self.send(&[low]);
+            }
+            0xD2 if c == 6 && in_window => {
+                set_c(self, 0);
+                self.monitor_store(target, self.rrm_data as u8);
+                self.send(&[0xD9]);
+            }
+            0x90..=0x9F if c == 7 && in_window => {
+                set_c(self, 0);
+                let word = self.rrm_data << 4 | u16::from(x);
+                self.monitor_store(target, word as u8);
+                self.monitor_store(target + 1, (word >> 8) as u8);
+                self.send(&[0xDA]);
+            }
+            0x90..=0x9F | 0xD0..=0xD3 => set_c(self, 0),
+            _ => {}
+        }
     }
 
     fn send(&mut self, bytes: &[u8]) {
@@ -770,7 +832,7 @@ impl Model {
                     // Path B bridges to path A: the halt (§23.2, §27.3).
                     self.enter_monitor(pc);
                 } else if !matches!(self.peek16(0x0002), 0x0000 | 0xFFFF) {
-                    panic!("virtual G15: pseudo-RRM/DMM ({byte:02X}H) is not modelled");
+                    self.path_b(byte);
                 }
                 // Otherwise path B returns at once and says nothing (0EFE97H).
             }

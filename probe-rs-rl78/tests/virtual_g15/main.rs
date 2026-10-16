@@ -598,6 +598,107 @@ fn routines_leave_the_programs_es() {
     assert_eq!(g15.lock().peek(0xF_FFFD), 0x05, "the program's ES");
 }
 
+/// Where the pseudo-RRM tests' programs keep the ROM's 4-byte block, and `00002H` pointing at it.
+const RRM_BLOCK: u16 = 0xFE80;
+
+fn image_with_rrm(code: &[u8]) -> Vec<(u64, Vec<u8>)> {
+    let mut image = image(code);
+    image.insert(1, (0x0002, RRM_BLOCK.to_le_bytes().to_vec()));
+    image
+}
+
+/// A program that points `00002H` at a block can be read and written while it runs (§30):
+/// five commands a byte read, the CPU never stopping.
+#[test]
+fn memory_while_running_through_pseudo_rrm() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    flash(&mut session, &image_with_rrm(&FEED_AND_COUNT), false);
+    let mut core = session.core(0).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    core.run().unwrap();
+    g15.run_for_ms(1);
+
+    // Nothing zeroed the block (the model's RAM is 33H), so the ROM's counter starts at 3: the
+    // first read fails its gate, resyncs and goes again.
+    let mut count = [0; 2];
+    core.read_8(COUNTER, &mut count).unwrap();
+    let n = u16::from_le_bytes(count);
+    assert!(n > 100, "it had been counting: {n}");
+    let commands = g15.lock().rrm_commands;
+    core.read_8(COUNTER, &mut count).unwrap();
+    assert_eq!(
+        g15.lock().rrm_commands - commands,
+        10,
+        "then five commands a byte"
+    );
+    assert!(!g15.in_monitor(), "never stopped");
+    let n = u16::from_le_bytes(count);
+    g15.run_for_ms(1);
+    core.read_8(COUNTER, &mut count).unwrap();
+    // A 16-bit count wraps every few milliseconds of the model's time: changed is enough.
+    assert_ne!(u16::from_le_bytes(count), n, "and counts on");
+
+    core.write_8(0xF_FE60, &[0x5A, 0xA5, 0x01]).unwrap();
+    assert_eq!(peek(&g15, 0xF_FE60, 3), [0x5A, 0xA5, 0x01]);
+    let mut back = [0; 3];
+    core.read_8(0xF_FE60, &mut back).unwrap();
+    assert_eq!(back, [0x5A, 0xA5, 0x01]);
+    assert_eq!(core.status().unwrap(), CoreStatus::Running);
+
+    // Code flash is out of its reach.
+    assert!(core.read_8(0x0900, &mut back).is_err());
+}
+
+/// Without the vector, path B is off and the ROM answers nothing: a read while running is
+/// refused, rather than halting behind the user's back, and the program runs on.
+#[test]
+fn no_pseudo_rrm_without_the_vector() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    flash(&mut session, &image(&FEED_AND_COUNT), false);
+    let mut core = session.core(0).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    core.run().unwrap();
+    let mut count = [0; 2];
+    let error = core.read_8(COUNTER, &mut count).unwrap_err();
+    assert!(
+        format!("{error:?}").contains("NotWhileRunning"),
+        "{error:?}"
+    );
+    assert_eq!(core.status().unwrap(), CoreStatus::Running);
+}
+
+/// A target that stops at a breakpoint while the debugger reads through pseudo-RRM answers with
+/// its sync instead: the read takes it as the halt and finishes halted.
+#[test]
+fn breakpoint_during_a_pseudo_rrm_read() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    flash(&mut session, &image_with_rrm(&FEED_AND_COUNT), false);
+    let mut core = session.core(0).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    core.run().unwrap();
+    g15.run_for_ms(1);
+    // Planted while running; the loop meets it at once, unseen until the read.
+    core.set_hw_breakpoint(INCW_IN_FLASH).unwrap();
+    g15.run_for_ms(1);
+    assert!(g15.in_monitor());
+
+    let mut count = [0; 2];
+    core.read_8(COUNTER, &mut count).unwrap();
+    assert_eq!(
+        core.status().unwrap(),
+        CoreStatus::Halted(HaltReason::Breakpoint(BreakpointCause::Hardware))
+    );
+    assert_eq!(reg(&mut core, PC_ID), INCW_IN_FLASH);
+    assert_eq!(
+        count,
+        peek(&g15, COUNTER as u32, 2)[..],
+        "read halted, right"
+    );
+}
+
 /// e2 studio's monitor image (§4, §31): the reset vector on the debug stub, which branches to
 /// `0FFFFH`, the option bytes it writes, and the session's security ID.
 fn assert_monitor_image(g15: &VirtualG15, id: [u8; 10]) {

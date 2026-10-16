@@ -43,7 +43,7 @@ pub(crate) use flash::attach_or_recover;
 #[cfg(test)]
 mod scripted;
 
-use communication_interface::{Rl78Error, Rl78OcdInterface};
+use communication_interface::{Rl78Error, Rl78OcdInterface, Rrm};
 use protocol::Sync;
 use registers::*;
 use sequences::Rl78DebugSequence;
@@ -200,6 +200,9 @@ pub struct Rl78CoreState {
     /// The session's attach halted a running program, and nothing has run, stepped, reset or
     /// reflashed it since: the end of the session lets it run on, as it found it.
     resume_at_detach: bool,
+    /// Whether the program answers pseudo-RRM: `None` until it is first tried while running,
+    /// and again after the program is reflashed. It outlives resets.
+    rrm: Option<bool>,
 }
 
 impl Rl78CoreState {
@@ -220,6 +223,7 @@ impl Rl78CoreState {
             at_boot_rom,
             resume_at_detach: !at_boot_rom,
             breakpoints: std::mem::take(&mut self.breakpoints),
+            rrm: self.rrm,
             ..Self::default()
         };
     }
@@ -569,6 +573,11 @@ impl<'probe> Rl78<'probe> {
 
     /// Memory as the program has it: with the bytes that breakpoint traps replaced.
     fn read_bytes(&mut self, address: u64, data: &mut [u8]) -> Result<(), Error> {
+        if self.state.running {
+            // Without the monitor the register banks are the registers themselves, and there
+            // are no traps where pseudo-RRM reaches.
+            return self.read_running(address, data);
+        }
         self.read_bytes_raw(address, data)?;
         self.state.breakpoints.hide_traps(address as u32, data);
         // The register banks as the program has them. In RAM, bank 0 is the monitor's scratch
@@ -605,7 +614,9 @@ impl<'probe> Rl78<'probe> {
     }
 
     fn write_bytes(&mut self, address: u64, data: &[u8]) -> Result<(), Error> {
-        self.require_halted("memory access")?;
+        if self.state.running {
+            return self.write_running(address, data);
+        }
         let start = valid_32bit_address(address)?;
         if start < protocol::ADDR16_BASE {
             return Err(Rl78Error::Unsupported("writing below F0000H (code flash)").into());
@@ -632,6 +643,78 @@ impl<'probe> Rl78<'probe> {
 }
 
 impl Rl78<'_> {
+    /// The program's code changed: whether it answers pseudo-RRM may have too.
+    pub(super) fn forget_rrm(&mut self) {
+        self.state.rrm = None;
+    }
+
+    /// Check that `len` bytes at `start` can be reached while the program runs.
+    fn running_access(&self, what: &'static str, start: u64, len: usize) -> Result<u32, Error> {
+        let start = valid_32bit_address(start)?;
+        let end = start as u64 + len as u64;
+        let in_window = |lo: u32, hi: u32| start >= lo && end <= u64::from(hi);
+        if self.state.rrm == Some(false)
+            || !(in_window(0xF_0000, 0xF_0800) || in_window(0xF_DF00, 0x10_0000))
+        {
+            return Err(Rl78Error::NotWhileRunning(what).into());
+        }
+        Ok(start)
+    }
+
+    /// Memory while the program runs, through pseudo-RRM. If the target stops during the read
+    /// (a breakpoint), the halt is taken and the read finished halted.
+    fn read_running(&mut self, address: u64, data: &mut [u8]) -> Result<(), Error> {
+        let start = self.running_access("reading memory", address, data.len())?;
+        let done = self.interface.rrm_read(start, data);
+        match self.rrm_answered("reading memory", done)? {
+            Rrm::Done => Ok(()),
+            Rrm::Stopped(sync) => {
+                self.stopped_during_rrm(sync)?;
+                self.read_bytes(address, data)
+            }
+        }
+    }
+
+    /// Memory written while the program runs, through pseudo-DMM.
+    fn write_running(&mut self, address: u64, data: &[u8]) -> Result<(), Error> {
+        let start = self.running_access("writing memory", address, data.len())?;
+        let done = self.interface.rrm_write(start, data);
+        match self.rrm_answered("writing memory", done)? {
+            Rrm::Done => Ok(()),
+            Rrm::Stopped(sync) => {
+                self.stopped_during_rrm(sync)?;
+                self.write_bytes(address, data)
+            }
+        }
+    }
+
+    /// Pseudo-RRM is the program's to enable, with a block pointer at `00002H` (§30). The
+    /// debugger does not read the vector: it tries, and a ROM with the path off says nothing to
+    /// the commands, none of which is the halt byte. The first silence settles it until the
+    /// program is reflashed.
+    fn rrm_answered(
+        &mut self,
+        what: &'static str,
+        done: Result<Rrm, Rl78Error>,
+    ) -> Result<Rrm, Error> {
+        match done {
+            Err(Rl78Error::RrmUnanswered(_)) if self.state.rrm.is_none() => {
+                self.state.rrm = Some(false);
+                Err(Rl78Error::NotWhileRunning(what).into())
+            }
+            Err(e) => Err(e.into()),
+            Ok(done) => {
+                self.state.rrm = Some(true);
+                Ok(done)
+            }
+        }
+    }
+
+    fn stopped_during_rrm(&mut self, sync: protocol::Sync) -> Result<(), Error> {
+        self.entered(sync, HaltReason::Unknown)?;
+        self.classify_stop()
+    }
+
     /// Write memory in the F-segment, outside the register banks.
     fn write_memory(&mut self, start: u32, data: &[u8]) -> Result<(), Error> {
         if data.is_empty() {
@@ -839,6 +922,7 @@ impl CoreInterface for Rl78<'_> {
         *self.state = Rl78CoreState {
             running: true,
             breakpoints: std::mem::take(&mut self.state.breakpoints),
+            rrm: self.state.rrm,
             ..Rl78CoreState::default()
         };
         Ok(())
