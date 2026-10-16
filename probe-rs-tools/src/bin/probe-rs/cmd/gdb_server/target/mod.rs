@@ -79,6 +79,9 @@ pub(crate) struct RuntimeTarget {
     /// True when GDB already erased sectors via `flash_erase` for this load.
     flash_erased: bool,
     memory_map_xml: Option<String>,
+    /// The last byte from GDB arrived while the target was stopped and GDB had been told so.
+    /// A Ctrl-C read then has raced a stop GDB already has the reply for.
+    stopped_when_read: bool,
 }
 
 impl RuntimeTarget {
@@ -125,6 +128,7 @@ impl RuntimeTarget {
             flash_loader: None,
             flash_erased: false,
             memory_map_xml: None,
+            stopped_when_read: true,
         })
     }
 
@@ -224,6 +228,7 @@ impl RuntimeTarget {
         };
 
         let next_state = if let Some(b) = next_byte {
+            self.stopped_when_read = true;
             state.incoming_data(self, b)?
         } else {
             *wait_time = Duration::from_millis(10);
@@ -244,6 +249,7 @@ impl RuntimeTarget {
         };
 
         if let Some(b) = next_byte {
+            self.stopped_when_read = false;
             return Ok(Some(state.incoming_data(self, b)?));
         }
 
@@ -286,8 +292,13 @@ impl RuntimeTarget {
         state: GdbStubStateMachineInner<'a, state::CtrlCInterrupt, Self, TcpStream>,
     ) -> Result<Option<GdbStubStateMachine<'a, Self, TcpStream>>, anyhow::Error> {
         self.halt_all_cores()?;
-        let next_state =
-            state.interrupt_handled(self, Some(MultiThreadStopReason::Signal(Signal::SIGINT)))?;
+        // A Ctrl-C read while stopped raced a stop that was reported just before it: the
+        // program stopped by itself as GDB interrupted it, and GDB takes that reply as the
+        // interrupt's. gdbstub would hold a second stop reason over to the next resume, which
+        // GDB would then see stop at once, and read registers from a core that is running.
+        let reason =
+            (!self.stopped_when_read).then_some(MultiThreadStopReason::Signal(Signal::SIGINT));
+        let next_state = state.interrupt_handled(self, reason)?;
 
         Ok(Some(next_state))
     }
