@@ -122,20 +122,25 @@ fn gdb_memory_map_from_wire(
 "#
     .to_owned();
 
-    let has_flash = !flash_sectors.is_empty();
     for region in memory_map {
+        let range = region.address_range();
         let region_kind = match region {
             MemoryRegion::Ram(_) => "ram",
-            MemoryRegion::Generic(_) => "rom",
-            MemoryRegion::Nvm(_) => {
-                if has_flash {
-                    continue;
-                } else {
-                    "rom"
-                }
+            // As the target declares it: ROMs say `write: false`, and the rest (TCMs, special
+            // function registers) are written like RAM. GDB refuses every write to a `rom`.
+            MemoryRegion::Generic(g) if g.access.is_some_and(|a| !a.write) => "rom",
+            MemoryRegion::Generic(_) => "ram",
+            // NVM that a flash algorithm covers is described by its sectors below. NVM with no
+            // algorithm still has to be readable: left out, GDB refuses to read it at all.
+            MemoryRegion::Nvm(_)
+                if flash_sectors
+                    .iter()
+                    .any(|s| s.start < range.end && range.start < s.start + s.length) =>
+            {
+                continue;
             }
+            MemoryRegion::Nvm(_) => "rom",
         };
-        let range = region.address_range();
         let start = range.start;
         let length = range.end - range.start;
         xml_map.push_str(&format!(
