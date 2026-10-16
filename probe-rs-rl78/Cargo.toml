@@ -21,7 +21,7 @@ yaml_serde.workspace = true
 [dev-dependencies]
 # The virtual G15's CPU (tests/virtual_g15). MIT OR Apache-2.0, as probe-rs. A git source is
 # fine in the fork; upstream needs it from crates.io, since deny.toml refuses git sources.
-rl78sim = { git = "https://github.com/AddisonH/rl78sim", rev = "5e63c04a4db3ccce98af574aded6ee838f6e2f54" }
+rl78sim = { git = "https://github.com/AddisonH/rl78sim", rev = "e0ff1257ff8ed05b6b42d7540138c5573b813bb8" }
 
 [lints]
 workspace = true

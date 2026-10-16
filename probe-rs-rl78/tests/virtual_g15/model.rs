@@ -35,7 +35,7 @@ use std::time::Duration;
 use probe_rs::architecture::rl78::communication_interface::{Rl78Error, Rl78Uart};
 use rl78sim::cpu::{Cpu, Stop};
 use rl78sim::isa::Core;
-use rl78sim::mem::{MemMap, Memory, RomWrites};
+use rl78sim::mem::{Io, MemMap, Memory, RomWrites};
 
 /// Code flash, `00000H`–`01FFFH` [g15:p56].
 pub const FLASH_SIZE: u32 = 0x2000;
@@ -121,8 +121,22 @@ pub struct Model {
     wdt_mark: u64,
     /// Internal resets so far, for tests.
     pub resets: u32,
-    /// The host wrote over bytes the CPU has decoded.
-    code_dirty: bool,
+}
+
+/// The program's stores to `WDTE`. The register itself keeps reading `9AH` or `1AH`.
+#[derive(Default)]
+struct Wdte {
+    writes: Vec<u8>,
+}
+
+impl Io for Wdte {
+    fn write(&mut self, _mem: &mut Memory, a: u32, v: u8) -> bool {
+        if a != WDTE {
+            return false;
+        }
+        self.writes.push(v);
+        true
+    }
 }
 
 impl fmt::Debug for Model {
@@ -148,12 +162,16 @@ fn g15_map() -> MemMap {
         rom_writes: RomWrites::Ignore,
         strict: true,
         sfr2_reads_11: false,
+        // 2nd SFRs F0000H-F07FFH; the mirror starts at F0800H [g15:p62].
+        sfr2_end: 0xF_0800,
     }
 }
 
 impl Model {
     fn new() -> Self {
-        let cpu = Cpu::new(Memory::new(g15_map()), Core::S2);
+        let mut mem = Memory::new(g15_map());
+        mem.set_io(Box::new(Wdte::default()));
+        let cpu = Cpu::new(mem, Core::S2);
         Self {
             cpu,
             mode: Mode::Reset,
@@ -167,30 +185,6 @@ impl Model {
             wdt_period: WDT_PERIOD_ATTACHED,
             wdt_mark: 0,
             resets: 0,
-            code_dirty: false,
-        }
-    }
-
-    /// rl78sim caches decoded instructions and drops them only when the CPU itself stores over
-    /// them, which the monitor's and the tests' stores do not go through. Until it has a call for
-    /// that, a fresh `Cpu` around the same memory starts with an empty cache.
-    fn sync_decode_cache(&mut self) {
-        if !self.code_dirty {
-            return;
-        }
-        self.code_dirty = false;
-        let mem = std::mem::replace(&mut self.cpu.mem, Memory::new(g15_map()));
-        let (pc, n) = (self.cpu.pc, self.cpu.n);
-        self.cpu = Cpu::new(mem, Core::S2);
-        self.cpu.mem.code_mark.fill(0);
-        self.cpu.pc = pc;
-        self.cpu.n = n;
-    }
-
-    fn note_store(&mut self, a: u32, len: usize) {
-        let marks = &self.cpu.mem.code_mark[a as usize..a as usize + len];
-        if marks.iter().any(|&m| m != 0) {
-            self.code_dirty = true;
         }
     }
 
@@ -214,16 +208,15 @@ impl Model {
         if a < FLASH_SIZE || self.mirror(a).is_some() {
             return;
         }
-        self.note_store(a, 1);
-        self.cpu.mem.b[a as usize] = v;
         if a == WDTE {
-            self.wdte_written();
+            self.wdte_written(v);
+        } else {
+            self.cpu.mem.poke(a, &[v]);
         }
     }
 
     /// Load bytes anywhere, flash included, without side effects.
     pub fn poke(&mut self, a: u32, data: &[u8]) {
-        self.note_store(a, data.len());
         self.cpu.mem.poke(a, data);
     }
 
@@ -266,9 +259,7 @@ impl Model {
     fn push(&mut self, bytes: &[u8]) {
         // bytes[0] lands at the new SP.
         let sp = self.sp() - bytes.len() as u32;
-        for (i, b) in bytes.iter().enumerate() {
-            self.cpu.mem.b[(sp + i as u32) as usize] = *b;
-        }
+        self.cpu.mem.poke(sp, bytes);
         self.set_sp(sp);
     }
 
@@ -320,14 +311,11 @@ impl Model {
         self.boot();
     }
 
-    fn wdte_written(&mut self) {
-        match self.cpu.mem.b[WDTE as usize] {
-            0xAC => {
-                self.wdt_mark = self.cpu.n.clocks;
-                self.cpu.mem.b[WDTE as usize] = if self.wdt_running { 0x9A } else { 0x1A };
-            }
-            // A read gives back 9AH or 1AH; anything else stored is a write that resets.
-            0x9A | 0x1A => {}
+    /// A store to `WDTE`: `ACH` feeds the watchdog; anything else, a bit operation included,
+    /// resets [g15:p311].
+    fn wdte_written(&mut self, v: u8) {
+        match v {
+            0xAC => self.wdt_mark = self.cpu.n.clocks,
             v => self.internal_reset(&format!("WDTE written with {v:02X}H")),
         }
     }
@@ -473,7 +461,6 @@ impl Model {
 
     /// `CALL !!0FFED0H` from 0EFFB1H, run until the routine returns to 0EFFB5H.
     fn call_gate(&mut self) {
-        self.sync_decode_cache();
         let r = CALL_RETURN;
         self.push(&[r as u8, (r >> 8) as u8, (r >> 16) as u8, 0]);
         self.cpu.pc = CALL_GATE;
@@ -515,16 +502,15 @@ impl Model {
 
     /// One instruction of the program, and what it did to the watchdog and the monitor.
     fn execute_one(&mut self) {
-        self.sync_decode_cache();
         let pc = self.cpu.pc;
         if ROM.contains(&pc) {
             self.rom_step(pc);
             return;
         }
-        let wdte = self.cpu.mem.b[WDTE as usize];
         let stop = self.cpu.step();
-        if self.cpu.mem.b[WDTE as usize] != wdte || wdte == 0xAC {
-            self.wdte_written();
+        let writes = std::mem::take(&mut self.cpu.mem.io_mut::<Wdte>().unwrap().writes);
+        for v in writes {
+            self.wdte_written(v);
             if self.mode != Mode::Running {
                 return;
             }

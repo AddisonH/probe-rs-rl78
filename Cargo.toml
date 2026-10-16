@@ -80,3 +80,7 @@ debug = "line-tables-only"
 [profile.dev.package.zip]
 # Set the default for zip in development mode so the creation of the zip does not take forever
 opt-level = 3
+
+# rl78sim e0ff125 is not pushed yet: build it from the rl-rs checkout until it is, then drop this.
+[patch."https://github.com/AddisonH/rl78sim"]
+rl78sim = { path = "../../rl-rs/rl78sim" }
