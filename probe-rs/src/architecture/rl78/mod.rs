@@ -13,12 +13,13 @@
 //!   step.
 //! - **Only `F0000H`–`FFFFFH` is directly reachable.** Everything below it, code flash included,
 //!   is read by a short routine staged in RAM and called through the monitor's call gate. That
-//!   RAM belongs to the user's program, so it is saved before the first routine runs and put back
-//!   before the target runs again.
+//!   RAM belongs to the user's program, so the bytes a routine overwrites are saved before it
+//!   runs and put back before the target runs again.
 //!
 //! Section references (§N) are to `g15_ocd_protocol_notes.md` in the rl78_debug_re repository.
 
 use std::{
+    collections::BTreeMap,
     ops::Range,
     time::{Duration, Instant},
 };
@@ -72,6 +73,12 @@ const CALL_GATE: u32 = 0xF_FED0;
 const STUB_BUFS: [u32; 2] = [0xF_FC10, 0xF_FDC0];
 const STUB_BUF_SIZE: usize = 256;
 const STUB_BUF_BELOW: usize = 10;
+
+/// Memory below `F0000H` is read in aligned blocks of this size and kept until the target next
+/// runs: GDB reads code a byte at a time around the PC, and each read is a routine. Every memory
+/// area below `F0000H` (code flash, data flash, the OCD ROM) is a multiple of it in size and
+/// alignment, so a block never reaches past the area it was asked for into reserved space.
+const CODE_BLOCK: u32 = 64;
 
 /// How long a routine behind the call gate gets to return, unless it says otherwise.
 const STUB_TIMEOUT: Duration = Duration::from_secs(1);
@@ -184,8 +191,10 @@ pub struct Rl78CoreState {
     sync: Sync,
     /// The register file, read lazily after each halt.
     context: Option<Context>,
-    /// The user's RAM, saved before the debugger first overwrote any of it this halt.
-    ram_shadow: Option<Box<[u8]>>,
+    /// The user's RAM under what the debugger borrowed this halt.
+    ram_shadow: RamShadow,
+    /// Memory below `F0000H` read this halt, in [`CODE_BLOCK`]s.
+    code_cache: BTreeMap<u32, [u8; CODE_BLOCK as usize]>,
     /// The flash routine is staged at `STUB_BASE`, with the call gate pointing at it.
     flash_resident: bool,
     /// Where the routines' buffer is this halt.
@@ -203,6 +212,64 @@ pub struct Rl78CoreState {
     /// Whether the program answers pseudo-RRM: `None` until it is first tried while running,
     /// and again after the program is reflashed. It outlives resets.
     rrm: Option<bool>,
+}
+
+/// The bytes of the user's RAM that the debugger saved before first overwriting them this halt:
+/// a routine's code, the call gate, the part of the buffer the routine fills, and bank 0's
+/// registers, which the routines use. Only those, so that a halt that runs one small routine
+/// does not pay for all of RAM twice.
+#[derive(Debug, Default)]
+struct RamShadow(BTreeMap<u32, u8>);
+
+impl RamShadow {
+    /// The parts of `range` not saved yet.
+    fn unsaved(&self, range: Range<u32>) -> Vec<Range<u32>> {
+        let mut runs: Vec<Range<u32>> = Vec::new();
+        for a in range.filter(|a| !self.0.contains_key(a)) {
+            match runs.last_mut() {
+                Some(run) if run.end == a => run.end += 1,
+                _ => runs.push(a..a + 1),
+            }
+        }
+        runs
+    }
+
+    fn save(&mut self, start: u32, bytes: &[u8]) {
+        for (a, &b) in (start..).zip(bytes) {
+            self.0.insert(a, b);
+        }
+    }
+
+    fn get(&self, address: u32) -> Option<u8> {
+        self.0.get(&address).copied()
+    }
+
+    /// Change a saved byte; false if `address` is not saved.
+    fn update(&mut self, address: u32, value: u8) -> bool {
+        match self.0.get_mut(&address) {
+            Some(b) => {
+                *b = value;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The saved bytes as contiguous runs, in address order.
+    fn runs(&self) -> Vec<(u32, Vec<u8>)> {
+        let mut runs: Vec<(u32, Vec<u8>)> = Vec::new();
+        for (&a, &b) in &self.0 {
+            match runs.last_mut() {
+                Some((start, bytes)) if *start + bytes.len() as u32 == a => bytes.push(b),
+                _ => runs.push((a, vec![b])),
+            }
+        }
+        runs
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 impl Rl78CoreState {
@@ -408,7 +475,8 @@ impl<'probe> Rl78<'probe> {
         self.state.running = false;
         self.state.sync = sync;
         self.state.context = None;
-        self.state.ram_shadow = None;
+        self.state.ram_shadow = RamShadow::default();
+        self.state.code_cache.clear();
         self.state.flash_resident = false;
         self.state.stub_buf = None;
         self.state.fsset = None;
@@ -422,30 +490,35 @@ impl<'probe> Rl78<'probe> {
         Ok(u64::from(self.load_context()?.regs[usize::from(PC_ID)]))
     }
 
-    /// Save the user's RAM, once per halt, before anything overwrites it. Lazily, so that a
-    /// session that never runs a routine never pays for it: then the only user memory disturbed
-    /// is the debug interrupt frame, which is exactly what Renesas reserves [g15:p687].
-    fn ram_borrow(&mut self) -> Result<(), Error> {
-        if self.state.ram_shadow.is_none() {
-            let mut ram = vec![0; RAM_SIZE].into_boxed_slice();
-            self.interface.read_mem(RAM_BASE, &mut ram)?;
-            self.state.ram_shadow = Some(ram);
-            tracing::debug!("rl78: saved {RAM_SIZE} bytes of RAM");
+    /// Save the user's RAM in `range` before the debugger overwrites it, once per halt and only
+    /// the bytes not saved already. Lazily, so that a session that never runs a routine never
+    /// pays for it: then the only user memory disturbed is the debug interrupt frame, which is
+    /// exactly what Renesas reserves [g15:p687].
+    fn ram_borrow(&mut self, range: Range<u32>) -> Result<(), Error> {
+        let range = range.start.max(RAM_BASE)..range.end.min(RAM_BASE + RAM_SIZE as u32);
+        for run in self.state.ram_shadow.unsaved(range) {
+            let mut bytes = vec![0; run.len()];
+            self.interface.read_mem(run.start, &mut bytes)?;
+            self.state.ram_shadow.save(run.start, &bytes);
+            tracing::debug!("rl78: saved RAM {:05X}H-{:05X}H", run.start, run.end - 1);
         }
         Ok(())
     }
 
     fn ram_return(&mut self) -> Result<(), Error> {
         self.state.flash_resident = false;
-        if let Some(ram) = self.state.ram_shadow.take() {
-            if let Err(e) = self.interface.write_mem(RAM_BASE, &ram) {
+        let shadow = std::mem::take(&mut self.state.ram_shadow);
+        for (start, bytes) in shadow.runs() {
+            if let Err(e) = self.interface.write_mem(start, &bytes) {
                 tracing::error!(
                     "rl78: could not restore RAM; the program's memory is what the debugger left"
                 );
-                self.state.ram_shadow = Some(ram);
+                self.state.ram_shadow = shadow;
                 return Err(e.into());
             }
-            tracing::debug!("rl78: restored {RAM_SIZE} bytes of RAM");
+        }
+        if shadow.len() > 0 {
+            tracing::debug!("rl78: restored {} bytes of RAM", shadow.len());
         }
         Ok(())
     }
@@ -500,9 +573,12 @@ impl<'probe> Rl78<'probe> {
                 code.len()
             )));
         }
-        self.check_scratch(STUB_BASE..STUB_BASE + code.len() as u32)?;
-        self.check_scratch(CALL_GATE..CALL_GATE + 4)?;
-        self.ram_borrow()?;
+        let stub = STUB_BASE..STUB_BASE + code.len() as u32;
+        let gate = CALL_GATE..CALL_GATE + 4;
+        self.check_scratch(stub.clone())?;
+        self.check_scratch(gate.clone())?;
+        self.ram_borrow(stub)?;
+        self.ram_borrow(gate)?;
         self.state.flash_resident = false;
         self.interface.write_mem(STUB_BASE, code)?;
         // BR !!STUB_BASE
@@ -512,20 +588,24 @@ impl<'probe> Rl78<'probe> {
         Ok(())
     }
 
-    /// Stage a routine in RAM and call it through the monitor's call gate.
-    fn run_stub(&mut self, code: &[u8]) -> Result<(), Error> {
+    /// Stage a routine in RAM and call it through the monitor's call gate. It writes `out`.
+    fn run_stub(&mut self, code: &[u8], out: Range<u32>) -> Result<(), Error> {
         self.routine_runs()?;
         self.stage_stub(code)?;
+        self.ram_borrow(out)?;
         self.interface.call_stub(STUB_TIMEOUT)?;
         Ok(())
     }
 
     /// A routine is about to run behind `5BH`. It changes ES (the read routine sets it, and ES
     /// comes back as its reset value 0FH besides), and the program's ES is only in the context:
-    /// mark it to be written back, or the program resumes with the routine's.
+    /// mark it to be written back, or the program resumes with the routine's. It also works in
+    /// bank 0, whose registers are RAM; D and E there are the program's (see
+    /// [`load_context`](Self::load_context)), so bank 0 is borrowed like the rest.
     pub(super) fn routine_runs(&mut self) -> Result<(), Error> {
         self.load_context()?.touch(ES_ID);
-        Ok(())
+        let bank0 = BANKS_ADDR + bank_offset(0, 0) as u32;
+        self.ram_borrow(bank0..bank0 + 8)
     }
 
     /// Read anywhere in the 20-bit space by running [`STUB_READ20`] and reading its buffer.
@@ -542,10 +622,45 @@ impl<'probe> Rl78<'probe> {
         self.read_far_by_routine(address, data)
     }
 
-    fn read_far_by_routine(&mut self, mut address: u32, data: &mut [u8]) -> Result<(), Error> {
+    /// Read below `F0000H` through [`CODE_BLOCK`]s kept for the halt, reading the missing ones
+    /// by routine, as many to a run as the buffer holds.
+    fn read_far_by_routine(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
         if data.is_empty() {
             return Ok(());
         }
+        let end = address + data.len() as u32;
+        let missing: Vec<u32> = (address & !(CODE_BLOCK - 1)..end)
+            .step_by(CODE_BLOCK as usize)
+            .filter(|b| !self.state.code_cache.contains_key(b))
+            .collect();
+        let per_run = STUB_BUF_SIZE / CODE_BLOCK as usize;
+        let mut i = 0;
+        while i < missing.len() {
+            let start = missing[i];
+            let mut n = 1;
+            while n < per_run
+                && i + n < missing.len()
+                && missing[i + n] == start + n as u32 * CODE_BLOCK
+            {
+                n += 1;
+            }
+            let mut blocks = vec![0; n * CODE_BLOCK as usize];
+            self.read_far_uncached(start, &mut blocks)?;
+            let (blocks, _) = blocks.as_chunks::<{ CODE_BLOCK as usize }>();
+            for (k, block) in blocks.iter().enumerate() {
+                self.state
+                    .code_cache
+                    .insert(start + k as u32 * CODE_BLOCK, *block);
+            }
+            i += n;
+        }
+        for (a, byte) in (address..).zip(data.iter_mut()) {
+            *byte = self.state.code_cache[&(a & !(CODE_BLOCK - 1))][(a % CODE_BLOCK) as usize];
+        }
+        Ok(())
+    }
+
+    fn read_far_uncached(&mut self, mut address: u32, data: &mut [u8]) -> Result<(), Error> {
         let buf = self.stub_buf()?;
         for chunk in data.chunks_mut(STUB_BUF_SIZE) {
             let mut code = STUB_READ20;
@@ -553,7 +668,7 @@ impl<'probe> Rl78<'probe> {
             code[READ20_ADDR..READ20_ADDR + 2].copy_from_slice(&(address as u16).to_le_bytes());
             code[READ20_BUF..READ20_BUF + 2].copy_from_slice(&(buf as u16).to_le_bytes());
             code[READ20_COUNT] = chunk.len() as u8; // 256 encodes as 0
-            self.run_stub(&code)?;
+            self.run_stub(&code, buf..buf + chunk.len() as u32)?;
             self.interface.read_mem(buf, chunk)?;
             address += chunk.len() as u32;
         }
@@ -563,10 +678,10 @@ impl<'probe> Rl78<'probe> {
     /// Read in `F0000H`–`FFFFFH`, seeing the user's RAM rather than what the debugger borrowed.
     fn read_f_segment(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
         self.interface.read_mem(address, data)?;
-        if let Some(ram) = &self.state.ram_shadow
-            && let Some((d, r)) = ram_overlap(address, data.len())
-        {
-            data[d].copy_from_slice(&ram[r]);
+        for (a, byte) in (address..).zip(data.iter_mut()) {
+            if let Some(saved) = self.state.ram_shadow.get(a) {
+                *byte = saved;
+            }
         }
         Ok(())
     }
@@ -717,37 +832,23 @@ impl Rl78<'_> {
 
     /// Write memory in the F-segment, outside the register banks.
     fn write_memory(&mut self, start: u32, data: &[u8]) -> Result<(), Error> {
-        if data.is_empty() {
-            return Ok(());
-        }
-        match &mut self.state.ram_shadow {
-            // While RAM is borrowed, the user's RAM is the saved copy: change that, and it goes
-            // back to the target on resume. Write the rest directly.
-            Some(ram) => {
-                if let Some((d, r)) = ram_overlap(start, data.len()) {
-                    ram[r].copy_from_slice(&data[d]);
-                }
-                let ram_end = RAM_BASE + RAM_SIZE as u32;
-                let end = start + data.len() as u32;
-                if start < RAM_BASE {
-                    let n = (RAM_BASE.min(end) - start) as usize;
-                    self.interface.write_mem(start, &data[..n])?;
-                }
-                if end > ram_end {
-                    let from = ram_end.max(start);
-                    self.interface
-                        .write_mem(from, &data[(from - start) as usize..])?;
-                }
+        // Where the debugger has borrowed RAM, the user's bytes are the saved copy: change that,
+        // and it goes back to the target on resume. Write the rest directly.
+        let mut direct: Vec<(u32, Vec<u8>)> = Vec::new();
+        for (a, &byte) in (start..).zip(data) {
+            if self.state.ram_shadow.update(a, byte) {
+                continue;
             }
-            None => self.interface.write_mem(start, data)?,
+            match direct.last_mut() {
+                Some((s, bytes)) if *s + bytes.len() as u32 == a => bytes.push(byte),
+                _ => direct.push((a, vec![byte])),
+            }
+        }
+        for (a, bytes) in direct {
+            self.interface.write_mem(a, &bytes)?;
         }
         Ok(())
     }
-}
-
-/// Where `len` bytes at `address` overlap RAM: the range within the data, and within RAM.
-fn ram_overlap(address: u32, len: usize) -> Option<(Range<usize>, Range<usize>)> {
-    overlap(address, len, RAM_BASE..RAM_BASE + RAM_SIZE as u32)
 }
 
 /// Where `len` bytes at `address` overlap the register banks: the range within the data, and
@@ -1096,12 +1197,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ram_overlap_clips() {
-        // Four bytes below RAM, four inside.
-        assert_eq!(ram_overlap(RAM_BASE - 4, 8), Some((4..8, 0..4)));
-        // Straddling the top.
-        assert_eq!(ram_overlap(RAM_BASE + 0x3FE, 4), Some((0..2, 0x3FE..0x400)));
-        assert_eq!(ram_overlap(0xF_FF00, 4), None);
+    fn ram_shadow_saves_each_byte_once_and_returns_runs() {
+        let mut shadow = RamShadow::default();
+        assert_eq!(shadow.unsaved(0xF_FB00..0xF_FB04), vec![0xF_FB00..0xF_FB04]);
+        shadow.save(0xF_FB01, &[1, 2]);
+        // Only the gaps are left to save.
+        assert_eq!(
+            shadow.unsaved(0xF_FB00..0xF_FB05),
+            [0xF_FB00..0xF_FB01, 0xF_FB03..0xF_FB05]
+        );
+        shadow.save(0xF_FB10, &[9]);
+        assert!(shadow.update(0xF_FB02, 7));
+        assert!(
+            !shadow.update(0xF_FB03, 7),
+            "not saved: written to the target instead"
+        );
+        assert_eq!(shadow.get(0xF_FB02), Some(7));
+        assert_eq!(shadow.runs(), [(0xF_FB01, vec![1, 7]), (0xF_FB10, vec![9])]);
+        assert_eq!(shadow.len(), 3);
     }
 
     #[test]

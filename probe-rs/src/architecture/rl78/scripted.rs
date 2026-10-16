@@ -284,26 +284,41 @@ fn read20(addr: u32, count: u8) -> Vec<u8> {
 #[test]
 fn code_flash_is_read_by_a_routine_and_ram_is_given_back() {
     let ram: Vec<u8> = (0..0x400).map(|i| i as u8).collect();
-    let mut after = ram.clone();
-    after[0x80] = 0xAA;
+    let saved = |a: u32, n: usize| {
+        let o = (a - 0xF_FB00) as usize;
+        ram[o..o + n].to_vec()
+    };
+    let mut block = vec![0xEF, 0xF7, 0xF9, 0x85];
+    block.resize(64, 0xFF);
+    let mut stub_after = saved(0xF_FB00, 19);
+    stub_after[5] = 0xBB;
     let mut s = Session::attached([0; 4], |s| {
         // Before borrowing RAM, the driver checks the monitor's stack is clear of what it will
         // use, which takes the register context (and SP with it).
         s.context(MONITOR_SP, [0, 0, 0x80, 0xFB, 0x0F, 0x06], [0; 32]);
-        // The first routine saves all of RAM, then is staged low, behind a branch at the call
-        // gate, called with 5BH, and its buffer read back: low, at FFC10H, clear of the
-        // monitor's stack at FFBFAH.
-        s.read(0xF_FB00, &ram)
-            .write(0xF_FB00, &read20(0x000C0, 4))
+        // Only what the routine overwrites is saved: bank 0's registers, which it works in,
+        // then its code (staged low), the call gate, and the part of the buffer it fills: low,
+        // at FFC10H, clear of the monitor's stack at FFBFAH. Four bytes asked for, a 64-byte
+        // block read, kept for the halt.
+        s.read(0xF_FEF8, &saved(0xF_FEF8, 8))
+            .read(0xF_FB00, &saved(0xF_FB00, 19))
+            .read(0xF_FED0, &saved(0xF_FED0, 4))
+            .write(0xF_FB00, &read20(0x000C0, 64))
             .write(0xF_FED0, &[0xEC, 0x00, 0xFB, 0x0F])
+            .read(0xF_FC10, &saved(0xF_FC10, 64))
             .exchange(&[0x5B], &[0x00])
-            .read(0xF_FC10, &[0xEF, 0xF7, 0xF9, 0x85]);
+            .read(0xF_FC10, &block);
         // A read of RAM while it is borrowed goes to the target, but shows the saved copy.
         s.read(0xF_FB00, &[0x41, 0x00]);
-        // Resuming puts RAM back first (with the debugger's write to it), then the program's
-        // ES, which the routine changed, then clears the step enable at F0085H, then returns
-        // from the interrupt.
-        s.write(0xF_FB00, &after)
+        // A write to RAM the debugger has not borrowed goes straight to the target.
+        s.write(0xF_FB80, &[0xAA]);
+        // Resuming puts back the saved bytes, run by run (with the debugger's write to one of
+        // them), then the program's ES, which the routine changed, then clears the step enable
+        // at F0085H, then returns from the interrupt.
+        s.write(0xF_FB00, &stub_after)
+            .write(0xF_FC10, &saved(0xF_FC10, 64))
+            .write(0xF_FED0, &saved(0xF_FED0, 4))
+            .write(0xF_FEF8, &saved(0xF_FEF8, 8))
             .write(0xF_FFFD, &[0x00])
             .write(0xF_0085, &[0x00])
             .exchange(&[0x5C, 0, 0, 0, 0], &[0x00]);
@@ -312,10 +327,14 @@ fn code_flash_is_read_by_a_routine_and_ram_is_given_back() {
     let mut option_bytes = [0; 4];
     core.read_8(0xC0, &mut option_bytes).unwrap();
     assert_eq!(option_bytes, [0xEF, 0xF7, 0xF9, 0x85]);
+    // The same block again: no transaction.
+    core.read_8(0xC1, &mut option_bytes[..2]).unwrap();
+    assert_eq!(option_bytes[..2], [0xF7, 0xF9]);
     let mut seen = [0; 2];
     core.read_8(0xF_FB00, &mut seen).unwrap();
     assert_eq!(seen, [0x00, 0x01], "the user's RAM, not the routine");
     // No transaction: the write lands in the saved copy, which goes back on resume.
+    core.write_8(0xF_FB05, &[0xBB]).unwrap();
     core.write_8(0xF_FB80, &[0xAA]).unwrap();
     core.run().unwrap();
     drop(core);

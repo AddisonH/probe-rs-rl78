@@ -598,6 +598,46 @@ fn routines_leave_the_programs_es() {
     assert_eq!(g15.lock().peek(0xF_FFFD), 0x05, "the program's ES");
 }
 
+/// Routines borrow only the RAM they overwrite (their code, the call gate, the buffer they fill,
+/// bank 0), and every byte of it goes back: after reads below F0000H the program runs on with
+/// its RAM as it was, but for the dead stack under its SP, where the monitor's frame and the
+/// call into the routine went.
+#[test]
+fn routines_give_back_every_byte_of_ram() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    let mut core = session.core(0).unwrap();
+    // `br $.`
+    load(&mut core, &[0xEF, 0xFE]);
+    let pattern: Vec<u8> = (0..0x100u32).map(|i| (i * 7 + 3) as u8).collect();
+    // Where the routine is staged, and its buffer.
+    core.write_8(0xF_FB00, &pattern).unwrap();
+    core.write_8(0xF_FC10, &pattern[..0x80]).unwrap();
+    let sp = reg(&mut core, SP_ID) as u32;
+    let before = peek(&g15, 0xF_FB00, 0x400);
+
+    // Five blocks in two routine runs, then a read the cache answers.
+    let mut code = [0; 300];
+    core.read_8(0x0000, &mut code).unwrap();
+    let calls = g15.lock().calls;
+    core.read_8(0x0100, &mut code[..4]).unwrap();
+    assert_eq!(g15.lock().calls, calls, "kept for the halt");
+    assert_eq!(&code[0xC0..0xC4], [0xEE, 0xFF, 0xF9, 0x8F]);
+
+    core.run().unwrap();
+    g15.run_for_ms(1);
+    let after = peek(&g15, 0xF_FB00, 0x400);
+    let dead = (sp - 32 - 0xF_FB00) as usize..(sp - 0xF_FB00) as usize;
+    // While halted, bank 0's RAM is the monitor's registers but for D and E (§47.4); the
+    // program gets the rest back from the sync and the frame, not from RAM.
+    let monitors = [0x3F8, 0x3F9, 0x3FA, 0x3FB, 0x3FE, 0x3FF];
+    for (i, (b, a)) in before.iter().zip(&after).enumerate() {
+        if !dead.contains(&i) && !monitors.contains(&i) {
+            assert_eq!(a, b, "RAM at {:05X}H", 0xF_FB00 + i);
+        }
+    }
+}
+
 /// Where the pseudo-RRM tests' programs keep the ROM's 4-byte block, and `00002H` pointing at it.
 const RRM_BLOCK: u16 = 0xFE80;
 
@@ -891,10 +931,12 @@ fn breakpoint_in_flash() {
             erased + 1,
             "continuing steps a copy: no rewrite"
         );
+        // One routine a continue, to read the code (block 0 is below the mirror), except the
+        // first: the read above already brought that code in, and it is kept for the halt.
         assert_eq!(
             g15.lock().calls,
-            calls + 3,
-            "one routine a continue, to read the code: block 0 is below the mirror"
+            calls + 2,
+            "one routine a continue after the first"
         );
 
         core.clear_hw_breakpoint(INCW_IN_FLASH).unwrap();

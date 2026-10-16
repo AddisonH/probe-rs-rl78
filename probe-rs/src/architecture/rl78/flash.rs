@@ -221,6 +221,10 @@ impl Rl78<'_> {
             self.state.flash_resident = true;
         }
 
+        // Flash is about to change under anything read from it this halt.
+        self.state.code_cache.clear();
+        let operands = params..params + (PARAMS_LEN + data.len()) as u32;
+        self.ram_borrow(operands)?;
         let mut buf = vec![0; PARAMS_LEN + data.len()];
         buf[P_STATUS] = NOT_RUN;
         buf[P_WORDS] = (data.len() / WORD).max(1) as u8;
