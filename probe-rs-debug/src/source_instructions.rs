@@ -440,6 +440,13 @@ impl<'debug_info> InstructionSequence<'debug_info> {
         let mut prologue_completed = false;
         let mut previous_row: Option<gimli::LineRow> = None;
         while let Ok(Some((_, row))) = sequence_rows.next_row() {
+            // A sequence can hold many functions: C compilers emit one per section, and without
+            // -ffunction-sections that is the whole unit. Each has its own prologue.
+            if previous_row.is_some() && program_unit.is_function_start(row.address()) {
+                prologue_completed = false;
+                previous_row = None;
+            }
+
             // Don't do anything until we are at least at the prologue_end() of a function.
             if row.prologue_end() {
                 prologue_completed = true;

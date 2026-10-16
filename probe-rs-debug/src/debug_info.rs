@@ -2646,6 +2646,17 @@ mod test {
         assert_eq!(return_address, Some(expected));
     }
 
+    /// clang without -ffunction-sections puts all of a unit's functions in one line sequence.
+    /// A breakpoint at a function's entry, as a step into it lands, belongs after that
+    /// function's own prologue, not just the first function's.
+    #[test_case(0x85B, 0x862; "record, the third function in the sequence")]
+    #[test_case(0x887, 0x88B; "toggle, the fourth")]
+    fn halt_location_skips_each_prologue(entry: u64, after_prologue: u64) {
+        let debug_info = load_test_elf_as_debug_info("debug-unwind-tests/R5F12068_pointer.elf");
+        let halt = crate::VerifiedBreakpoint::for_address(&debug_info, entry).unwrap();
+        assert_eq!(halt.address, after_prologue);
+    }
+
     fn coredump_path(base: String) -> PathBuf {
         let possible_coredump_paths = [
             get_path_for_test_files(format!("{base}.coredump").as_str()),

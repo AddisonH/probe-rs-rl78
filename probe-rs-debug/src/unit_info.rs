@@ -167,6 +167,13 @@ impl UnitInfo {
         ))
     }
 
+    /// Whether a function (not an inlined one) starts at `address`.
+    pub(crate) fn is_function_start(&self, address: u64) -> bool {
+        self.function_dies
+            .iter()
+            .any(|(range, _)| range.start == address)
+    }
+
     /// Get the compilation unit DIEs for the function containing the given address.
     /// - The first entry in the vector will be the outermost function containing the address.
     /// - If the address is inlined, the innermost function will be the last entry in the vector.
