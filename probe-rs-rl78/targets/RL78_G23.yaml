@@ -38,6 +38,8 @@ variants:
       end: 0xf3000
     cores:
     - main
+    access:
+      execute: false
   - !Generic
     name: Code flash mirror
     range:
