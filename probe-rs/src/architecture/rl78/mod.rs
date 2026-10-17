@@ -662,6 +662,21 @@ impl<'probe> Rl78<'probe> {
         Ok(sp - MONITOR_STACK_BELOW..sp + frame)
     }
 
+    /// The G23's data flash reads as 00H unless DFLCTL's DFLEN is set; the program's setting
+    /// is put back after.
+    fn read_data_flash_g23(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+        let mut dflctl = [0];
+        self.interface.read_mem(g23::DFLCTL, &mut dflctl)?;
+        if dflctl[0] & 1 == 0 {
+            self.interface.write_mem(g23::DFLCTL, &[dflctl[0] | 1])?;
+        }
+        let read = self.interface.read_mem(address, data);
+        if dflctl[0] & 1 == 0 {
+            self.interface.write_mem(g23::DFLCTL, &dflctl)?;
+        }
+        Ok(read?)
+    }
+
     /// The monitor is the G23's, not the G15's.
     fn g23(&self) -> bool {
         self.interface.monitor() == Rl78Monitor::G23
@@ -799,6 +814,9 @@ impl<'probe> Rl78<'probe> {
 
     /// Read in `F0000H`–`FFFFFH`, seeing the user's RAM rather than what the debugger borrowed.
     fn read_f_segment(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+        if self.g23() && overlap(address, data.len(), g23::DATA_FLASH).is_some() {
+            return self.read_data_flash_g23(address, data);
+        }
         self.interface.read_mem(address, data)?;
         for (a, byte) in (address..).zip(data.iter_mut()) {
             if let Some(saved) = self.state.ram_shadow.get(a) {

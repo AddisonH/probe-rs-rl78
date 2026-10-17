@@ -41,6 +41,10 @@ pub const CONTEXT_LEN: usize = 10;
 /// Bit 0 makes `95H` execute one instruction.
 pub const STEP_ENABLE: u32 = 0xF_0088;
 
+/// Data flash, and its access control: bit 0 (DFLEN) enables reads.
+pub const DATA_FLASH: std::ops::Range<u32> = 0xF_1000..0xF_3000;
+pub const DFLCTL: u32 = 0xF_0090;
+
 /// The rates the entry frame can choose, and their codes.
 pub const RATES: [(u32, u8); 4] = [(115_200, 0), (250_000, 1), (500_000, 2), (1_000_000, 3)];
 
