@@ -13,6 +13,7 @@ use probe_rs_target::{MemoryRegion, Rl78Monitor};
 use super::{
     Rl78, STUB_BUF_BELOW, STUB_BUF_SIZE,
     communication_interface::{Rl78Error, Rl78OcdInterface},
+    g23,
     protocol::{SECURITY_ID_LEN, Sync},
 };
 use crate::{
@@ -241,11 +242,12 @@ impl Rl78<'_> {
     /// `FSSET` for the CPU clock: its frequency in MHz, rounded up, less one. Read rather than
     /// assumed, because the program may have changed the clock, and the sequencer times its
     /// pulses by it.
-    fn flash_fsset(&mut self) -> Result<u8, Error> {
+    pub(super) fn flash_fsset(&mut self) -> Result<u8, Error> {
         if let Some(fsset) = self.state.fsset {
             return Ok(fsset);
         }
         if self.g23() {
+            self.flash_clock_g23()?;
             let fsset = self.cpu_mhz_g23()? - 1;
             self.state.fsset = Some(fsset);
             return Ok(fsset);
@@ -280,22 +282,108 @@ impl Rl78<'_> {
         Ok(fsset)
     }
 
-    /// The G23's CPU clock in MHz. Self-programming needs it on the high-speed on-chip
-    /// oscillator, whose frequency is `HOCODIV`'s, from a table that option byte `000C2H` bit 3
-    /// (FRQSEL3) chooses [RL78/G23 manual, 6.3.9].
-    fn cpu_mhz_g23(&mut self) -> Result<u8, Error> {
-        const CKC_CSS: u8 = 1 << 6;
-        const CKC_MCS1: u8 = 1 << 1;
-        let mut ckc = [0];
-        self.interface.read_mem(CKC, &mut ckc)?;
-        if ckc[0] & (CKC_CSS | CKC_MCS | CKC_MCS1) != 0 {
-            return Err(Rl78Error::Other(format!(
-                "CKC is {:02X}H: the CPU does not run from the high-speed on-chip oscillator, \
-                 which flash programming needs",
-                ckc[0]
-            ))
-            .into());
+    /// Self-programming needs the CPU on the high-speed on-chip oscillator, with the
+    /// middle-speed one stopped [RL78/G23 manual, 33.6]. A program on another clock is moved
+    /// there, and its settings go back before it runs again.
+    pub(super) fn flash_clock_g23(&mut self) -> Result<(), Error> {
+        use g23::{CKC_CLS, CKC_CSS, CKC_MCM0, CKC_MCM1, CKC_MCS1, CSC_HIOSTOP, CSC_MIOEN};
+        let mut regs = [0; 4];
+        self.interface.read_mem(g23::CSC, &mut regs)?;
+        let (mut csc, ckc) = (regs[0], regs[3]);
+        let off_hoco = CKC_CLS | CKC_CSS | CKC_MCS | CKC_MCM0 | CKC_MCS1 | CKC_MCM1;
+        if ckc & off_hoco == 0 && csc & (CSC_MIOEN | CSC_HIOSTOP) == 0 {
+            return Ok(());
         }
+        tracing::info!(
+            "rl78: CKC {ckc:02X}H, CSC {csc:02X}H: moving the CPU to the high-speed on-chip \
+             oscillator to program flash, until the program runs again"
+        );
+        self.state.clock.get_or_insert([csc, ckc]);
+        let set_csc = |this: &mut Self, value: u8| this.interface.write_mem(g23::CSC, &[value]);
+        if csc & CSC_HIOSTOP != 0 {
+            csc &= !CSC_HIOSTOP;
+            set_csc(self, csc)?;
+        }
+        let mut select = ckc & (CKC_CSS | CKC_MCM0 | CKC_MCM1);
+        if select & CKC_CSS != 0 {
+            // Off the subsystem clock first, to whatever the main clock is: MCM0 and MCM1
+            // cannot change while CSS is set.
+            if select & CKC_MCM0 != 0 && csc & g23::CSC_MSTOP != 0 {
+                return Err(Rl78Error::Other(
+                    "the CPU runs from the subsystem clock with X1 stopped; flash programming \
+                     needs the high-speed on-chip oscillator"
+                        .into(),
+                )
+                .into());
+            }
+            if select & (CKC_MCM0 | CKC_MCM1) == CKC_MCM1 && csc & CSC_MIOEN == 0 {
+                csc |= CSC_MIOEN;
+                set_csc(self, csc)?;
+            }
+            select &= !CKC_CSS;
+            self.select_clock_g23(select, CKC_CLS, 0)?;
+        }
+        if select & CKC_MCM0 != 0 {
+            select &= !CKC_MCM0;
+            self.select_clock_g23(select, CKC_MCS, 0)?;
+        }
+        if select & CKC_MCM1 != 0 {
+            self.select_clock_g23(0, CKC_MCS1, 0)?;
+        }
+        if csc & CSC_MIOEN != 0 {
+            set_csc(self, csc & !CSC_MIOEN)?;
+        }
+        Ok(())
+    }
+
+    /// Put back the clock settings [`flash_clock_g23`](Self::flash_clock_g23) changed: each
+    /// source running, then the selections in the order the manual allows, then CSC as it was.
+    pub(super) fn restore_clock_g23(&mut self) -> Result<(), Error> {
+        use g23::{CKC_CLS, CKC_CSS, CKC_MCM0, CKC_MCM1, CKC_MCS1, CSC_MIOEN};
+        let Some([csc, ckc]) = self.state.clock else {
+            return Ok(());
+        };
+        let select = ckc & (CKC_MCM0 | CKC_MCM1);
+        // Selecting the middle-speed oscillator needs it running, whatever CSC had.
+        if csc & CSC_MIOEN != 0 || select & CKC_MCM1 != 0 {
+            self.interface
+                .write_mem(g23::CSC, &[(csc | CSC_MIOEN) & !g23::CSC_HIOSTOP])?;
+        }
+        if select & CKC_MCM1 != 0 {
+            self.select_clock_g23(CKC_MCM1, CKC_MCS1, CKC_MCS1)?;
+        }
+        if select & CKC_MCM0 != 0 {
+            self.select_clock_g23(select, CKC_MCS, CKC_MCS)?;
+        }
+        if ckc & CKC_CSS != 0 {
+            self.select_clock_g23(select | CKC_CSS, CKC_CLS, CKC_CLS)?;
+        }
+        self.interface.write_mem(g23::CSC, &[csc])?;
+        self.state.clock = None;
+        Ok(())
+    }
+
+    /// Write CKC's selection bits, and wait for its status bit `mask` to read `want`.
+    fn select_clock_g23(&mut self, select: u8, mask: u8, want: u8) -> Result<(), Error> {
+        self.interface.write_mem(g23::CKC, &[select])?;
+        let mut ckc = [0];
+        for _ in 0..10 {
+            self.interface.read_mem(g23::CKC, &mut ckc)?;
+            if ckc[0] & mask == want {
+                return Ok(());
+            }
+        }
+        Err(Rl78Error::Other(format!(
+            "CKC reads {:02X}H after writing {select:02X}H: the clock did not switch",
+            ckc[0]
+        ))
+        .into())
+    }
+
+    /// The G23's CPU clock in MHz, on the high-speed on-chip oscillator, whose frequency is
+    /// `HOCODIV`'s, from a table that option byte `000C2H` bit 3 (FRQSEL3) chooses
+    /// [RL78/G23 manual, 6.3.9].
+    fn cpu_mhz_g23(&mut self) -> Result<u8, Error> {
         let mut option = [0];
         self.read_bytes(0xC2, &mut option)?;
         let mut div = [0];

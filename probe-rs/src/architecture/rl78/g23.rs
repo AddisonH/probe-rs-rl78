@@ -57,7 +57,12 @@ pub const MOCODIV: u32 = 0xF_00F2;
 pub const CKC_CLS: u8 = 1 << 7;
 pub const CKC_CSS: u8 = 1 << 6;
 pub const CKC_MCS: u8 = 1 << 5;
+pub const CKC_MCM0: u8 = 1 << 4;
 pub const CKC_MCS1: u8 = 1 << 1;
+pub const CKC_MCM1: u8 = 1 << 0;
+pub const CSC_MSTOP: u8 = 1 << 7;
+pub const CSC_MIOEN: u8 = 1 << 1;
+pub const CSC_HIOSTOP: u8 = 1 << 0;
 
 /// The routine the vendor runs at the gate to move the link to `rate_code`: `MOV FFFAFH,#0`
 /// (the link's UART off), `MOV CKC,#ckc` (CKC written with its own value), `MOV FFFAFH,#40H`

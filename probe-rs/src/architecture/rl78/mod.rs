@@ -200,6 +200,8 @@ pub struct Rl78CoreState {
     stub_buf: Option<u32>,
     /// `FSSET` for the clock the program left running, read once per halt.
     fsset: Option<u8>,
+    /// The G23 program's CSC and CKC, while flash programming has the CPU on another clock.
+    clock: Option<[u8; 2]>,
     /// Halted where an attach under reset leaves the part: the boot ROM's idle loop, before the
     /// program has run at all.
     at_boot_rom: bool,
@@ -518,6 +520,7 @@ impl<'probe> Rl78<'probe> {
         // RAM first: the register banks and the frame live inside it, so restoring it afterwards
         // would undo them.
         self.ram_return()?;
+        self.restore_clock_g23()?;
 
         let Some(ctx) = self.state.context.take() else {
             return Ok(self.state.sync);

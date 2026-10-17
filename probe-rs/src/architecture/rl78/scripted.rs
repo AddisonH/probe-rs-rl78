@@ -699,6 +699,25 @@ fn g23_a_stop_by_itself_is_unlocked_a_byte_at_a_time_until_ckc_is_read() {
 }
 
 #[test]
+fn g23_flash_moves_a_program_off_the_middle_speed_oscillator_and_back() {
+    let mut s = Session::fresh_g23(|s| {
+        // CSC, OSTC, OSTS, CKC: MIOEN set, the CPU on the middle-speed oscillator.
+        s.g23_read(g23::CSC, &[0x82, 0x00, 0x07, 0x03])
+            .g23_write(g23::CKC, &[0x00])
+            .g23_read(g23::CKC, &[0x00])
+            .g23_write(g23::CSC, &[0x80])
+            // Back: the oscillator started, selected, then CSC as it was.
+            .g23_write(g23::CSC, &[0x82])
+            .g23_write(g23::CKC, &[0x01])
+            .g23_read(g23::CKC, &[0x03])
+            .g23_write(g23::CSC, &[0x82]);
+    });
+    s.core().flash_clock_g23().unwrap();
+    s.core().restore_clock_g23().unwrap();
+    s.assert_done();
+}
+
+#[test]
 fn g23_recovery_erases_every_block_and_writes_only_the_programmed_ones() {
     let mut image = vec![0xFF; 2 * g23::BLOCK];
     image[0xC0..0xC4].copy_from_slice(&[0xEF, 0x3A, 0xE8, 0x85]);

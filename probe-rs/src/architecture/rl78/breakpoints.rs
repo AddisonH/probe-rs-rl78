@@ -271,6 +271,8 @@ impl Rl78<'_> {
     /// One block: read it, put in or take out the traps at `changes` that fall in it, erase it,
     /// write it back.
     fn rewrite_block(&mut self, block: u32, changes: &[u32]) -> Result<(), Error> {
+        // A clock that rules out programming is found before anything changes.
+        self.flash_fsset()?;
         // As it is, traps included: the ones not changing stay.
         let size = self.flash_block();
         let mut data = vec![0; size as usize];
