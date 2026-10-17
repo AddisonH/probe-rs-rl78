@@ -431,6 +431,13 @@ pub(crate) fn attach_or_recover(
     target: &Target,
     permissions: &Permissions,
 ) -> Result<Attached, Error> {
+    if let Some(crate::config::Core {
+        core_access_options: probe_rs_target::CoreAccessOptions::Rl78(options),
+        ..
+    }) = target.cores.first()
+    {
+        interface.set_monitor(options.monitor)?;
+    }
     if let Some(sync) = interface.attach_running()? {
         return Ok(Attached::Running(sync));
     }

@@ -33,6 +33,7 @@ mod breakpoints;
 pub mod communication_interface;
 mod comparators;
 mod flash;
+mod g23;
 mod isa;
 pub mod protocol;
 pub mod registers;
@@ -45,6 +46,7 @@ pub(crate) use flash::attach_or_recover;
 mod scripted;
 
 use communication_interface::{Rl78Error, Rl78OcdInterface, Rrm};
+use probe_rs_target::Rl78Monitor;
 use protocol::Sync;
 use registers::*;
 use sequences::Rl78DebugSequence;
@@ -344,6 +346,11 @@ impl<'probe> Rl78<'probe> {
     /// case. Banks 1 to 3 are untouched and read straight from RAM. PSW and SP come from the
     /// frame, not from `FFFFAH`/`FFFF8H`, which hold the monitor's own values.
     fn load_context(&mut self) -> Result<&mut Context, Error> {
+        if self.state.context.is_none() && self.g23() {
+            self.require_halted("reading registers")?;
+            let ctx = self.load_context_g23()?;
+            self.state.context = Some(Box::new(ctx));
+        }
         if self.state.context.is_none() {
             self.require_halted("reading registers")?;
             let mut sp = [0; 2];
@@ -396,6 +403,94 @@ impl<'probe> Rl78<'probe> {
         Ok(self.state.context.as_mut().expect("loaded above"))
     }
 
+    /// The G23 monitor's version of [`load_context`](Self::load_context): bank 0's X, A, C, B,
+    /// L and H, the PC and the PSW are in its context block, ES is in bank 0's C, and D, E and
+    /// SP are the program's as they stand.
+    fn load_context_g23(&mut self) -> Result<Context, Error> {
+        let mut block = [0; g23::CONTEXT_LEN];
+        self.interface.read_mem(g23::CONTEXT, &mut block)?;
+        let mut banks = [0; 32];
+        self.read_f_segment(BANKS_ADDR, &mut banks)?;
+        let mut sp = [0; 2];
+        self.interface.read_mem(SP_ADDR, &mut sp)?;
+        let mut sfr = [0; 4];
+        self.interface.read_mem(CS_ADDR, &mut sfr)?;
+
+        let b0 = bank_offset(0, 0);
+        sfr[1] = banks[b0 + 2];
+        banks[b0..b0 + 4].copy_from_slice(&[block[0], block[1], block[4], block[5]]);
+        banks[b0 + 6..b0 + 8].copy_from_slice(&block[2..4]);
+
+        let mut regs = [0; NUM_RAW];
+        for bank in 0..4 {
+            for r in 0..8 {
+                regs[bank * 8 + r] = u32::from(banks[bank_offset(bank, r)]);
+            }
+        }
+        regs[usize::from(PSW_ID)] = u32::from(block[9]);
+        regs[usize::from(PC_ID)] = u32::from_le_bytes([block[6], block[7], block[8] & 0x0F, 0]);
+        regs[usize::from(SPL_ID)] = u32::from(sp[0]);
+        regs[usize::from(SPH_ID)] = u32::from(sp[1]);
+        for (i, id) in [CS_ID, ES_ID, PMC_ID, MEM_ID].into_iter().enumerate() {
+            regs[usize::from(id)] = u32::from(sfr[i]);
+        }
+        tracing::debug!(
+            "rl78: halted at PC={:05X}H PSW={:02X}H SP={:02X}{:02X}H",
+            regs[usize::from(PC_ID)],
+            block[9],
+            sp[1],
+            sp[0]
+        );
+        Ok(Context {
+            monitor_sp: u16::from_le_bytes(sp),
+            regs,
+            dirty: 0,
+        })
+    }
+
+    /// The G23 monitor's version of [`store_context`](Self::store_context).
+    fn store_context_g23(&mut self, ctx: &Context) -> Result<(), Error> {
+        let r = |id: u16| ctx.regs[usize::from(id)] as u8;
+        if [0, 1, 2, 3, 6, 7, PC_ID, PSW_ID]
+            .into_iter()
+            .any(|id| ctx.is_dirty(id))
+        {
+            let pc = ctx.regs[usize::from(PC_ID)].to_le_bytes();
+            let block = [
+                r(0),
+                r(1),
+                r(6),
+                r(7),
+                r(2),
+                r(3),
+                pc[0],
+                pc[1],
+                pc[2] & 0x0F,
+                r(PSW_ID),
+            ];
+            self.interface.write_mem(g23::CONTEXT, &block)?;
+        }
+        for id in (4..32u16).filter(|&id| !matches!(id, 6 | 7) && ctx.is_dirty(id)) {
+            let (bank, reg) = (usize::from(id / 8), usize::from(id % 8));
+            self.interface
+                .write_mem(BANKS_ADDR + bank_offset(bank, reg) as u32, &[r(id)])?;
+        }
+        if ctx.is_dirty(ES_ID) {
+            self.interface
+                .write_mem(BANKS_ADDR + bank_offset(0, 2) as u32, &[r(ES_ID)])?;
+        }
+        for (i, id) in [CS_ID, PMC_ID, MEM_ID].into_iter().enumerate() {
+            if ctx.is_dirty(id) {
+                let at = CS_ADDR + [0, 2, 3][i];
+                self.interface.write_mem(at, &[r(id)])?;
+            }
+        }
+        if ctx.is_dirty(SPL_ID) || ctx.is_dirty(SPH_ID) {
+            self.interface.write_mem(SP_ADDR, &[r(SPL_ID), r(SPH_ID)])?;
+        }
+        Ok(())
+    }
+
     /// Write back whatever the debugger changed, ready for a resume or a step, and return the
     /// B, C, H and L to load on the way out.
     fn store_context(&mut self) -> Result<Sync, Error> {
@@ -406,6 +501,13 @@ impl<'probe> Rl78<'probe> {
         let Some(ctx) = self.state.context.take() else {
             return Ok(self.state.sync);
         };
+        if self.g23() {
+            if let Err(e) = self.store_context_g23(&ctx) {
+                self.state.context = Some(ctx);
+                return Err(e);
+            }
+            return Ok(self.state.sync);
+        }
         if ctx.is_dirty(SPL_ID) || ctx.is_dirty(SPH_ID) {
             self.state.context = Some(ctx);
             return Err(Error::Other(
@@ -536,7 +638,13 @@ impl<'probe> Rl78<'probe> {
     /// The RAM the monitor's stack uses while it runs a routine.
     fn monitor_stack(&mut self) -> Result<Range<u32>, Error> {
         let sp = protocol::ADDR16_BASE | u32::from(self.load_context()?.monitor_sp);
-        Ok(sp - MONITOR_STACK_BELOW..sp + FRAME_LEN as u32)
+        let frame = if self.g23() { 0 } else { FRAME_LEN as u32 };
+        Ok(sp - MONITOR_STACK_BELOW..sp + frame)
+    }
+
+    /// The monitor is the G23's, not the G15's.
+    fn g23(&self) -> bool {
+        self.interface.monitor() == Rl78Monitor::G23
     }
 
     /// The routines' buffer for this halt: the first of [`STUB_BUFS`] the monitor's stack leaves
@@ -565,17 +673,20 @@ impl<'probe> Rl78<'probe> {
             )));
         }
         let stub = STUB_BASE..STUB_BASE + code.len() as u32;
-        let gate = CALL_GATE..CALL_GATE + 4;
         self.check_scratch(stub.clone())?;
-        self.check_scratch(gate.clone())?;
         self.ram_borrow(stub)?;
-        self.ram_borrow(gate)?;
+        // The G23's gate is the monitor's own memory, not the program's.
+        let gate = if self.g23() { g23::GATE } else { CALL_GATE };
+        if !self.g23() {
+            self.check_scratch(gate..gate + 4)?;
+            self.ram_borrow(gate..gate + 4)?;
+        }
         self.state.flash_resident = false;
         self.interface.write_mem(STUB_BASE, code)?;
         // BR !!STUB_BASE
         let s = STUB_BASE.to_le_bytes();
         self.interface
-            .write_mem(CALL_GATE, &[0xEC, s[0], s[1], s[2] & 0x0F])?;
+            .write_mem(gate, &[0xEC, s[0], s[1], s[2] & 0x0F])?;
         Ok(())
     }
 
@@ -1102,11 +1213,17 @@ impl CoreInterface for Rl78<'_> {
     }
 
     fn available_breakpoint_units(&mut self) -> Result<u32, Error> {
+        if self.g23() {
+            return Ok(0);
+        }
         // FFH traps, put in place when the target next runs or steps.
         Ok(breakpoints::UNITS as u32)
     }
 
     fn hw_breakpoints(&mut self) -> Result<Vec<Option<u64>>, Error> {
+        if self.g23() {
+            return Ok(Vec::new());
+        }
         Ok(self.breakpoint_units())
     }
 

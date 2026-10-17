@@ -1,0 +1,62 @@
+# RL78/G23, written by hand from the RL78/G23 User's Manual: Hardware.
+name: RL78_G23
+variants:
+- name: R7F100GLG
+  cores:
+  - name: main
+    type: rl78
+    core_access_options: !Rl78
+      monitor: g23
+  memory_map:
+  - !Nvm
+    name: Code flash
+    range:
+      start: 0x0
+      end: 0x20000
+    cores:
+    - main
+    access:
+      boot: true
+  - !Generic
+    name: OCD ROM
+    range:
+      start: 0xee000
+      end: 0xf0000
+    cores:
+    - main
+  - !Generic
+    name: 2nd SFR
+    range:
+      start: 0xf0000
+      end: 0xf0800
+    cores:
+    - main
+  - !Nvm
+    name: Data flash
+    range:
+      start: 0xf1000
+      end: 0xf3000
+    cores:
+    - main
+  - !Generic
+    name: Code flash mirror
+    range:
+      start: 0xf3000
+      end: 0xfaf00
+    cores:
+    - main
+  # RAM proper is FBF00H-FFEDFH; the general-purpose registers follow at FFEE0H-FFEFFH.
+  - !Ram
+    name: RAM
+    range:
+      start: 0xfbf00
+      end: 0xfff00
+    cores:
+    - main
+  - !Generic
+    name: SFR
+    range:
+      start: 0xfff00
+      end: 0x100000
+    cores:
+    - main

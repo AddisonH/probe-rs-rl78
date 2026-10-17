@@ -21,7 +21,10 @@ pub fn register_plugin() {
     });
 }
 
-const TARGETS: &[&str] = &[include_str!("../targets/RL78_G15.yaml")];
+const TARGETS: &[&str] = &[
+    include_str!("../targets/RL78_G15.yaml"),
+    include_str!("../targets/RL78_G23.yaml"),
+];
 
 fn targets() -> Vec<ChipFamily> {
     TARGETS

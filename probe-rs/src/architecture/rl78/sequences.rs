@@ -6,10 +6,6 @@ use super::Rl78Flash;
 use crate::flashing::{DebugFlashSequence, FlashVerify};
 
 /// Debug sequences for RL78 targets.
-///
-/// The RL78/G15 class programs flash by self-programming ([`Rl78Flash`]). Other OCD classes,
-/// the R7F10x parts among them, are expected to differ in the call gate, the step
-/// mechanism and the RAM they borrow, and those differences will live here.
 pub trait Rl78DebugSequence: Send + Sync + Debug {
     /// Return the host-side flash sequence implementation, if any.
     fn debug_flash_sequence(&self) -> Option<Arc<dyn DebugFlashSequence>> {
@@ -50,3 +46,16 @@ impl Rl78DebugSequence for DefaultRl78Sequence {
         0x0800..0x2000
     }
 }
+
+/// The RL78/G23 class, which has no flash programming yet.
+#[derive(Debug)]
+pub struct G23Rl78Sequence;
+
+impl G23Rl78Sequence {
+    /// Create the sequence.
+    pub fn create() -> Arc<dyn Rl78DebugSequence> {
+        Arc::new(Self)
+    }
+}
+
+impl Rl78DebugSequence for G23Rl78Sequence {}

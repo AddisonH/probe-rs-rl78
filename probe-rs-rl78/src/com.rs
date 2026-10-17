@@ -51,12 +51,13 @@ const SIO_SET_BAUD_RATE: u8 = 3;
 const SIO_SET_DATA: u8 = 4;
 const SIO_SET_LATENCY_TIMER: u8 = 9;
 
-/// 8 data bits, odd parity, 2 stop bits. The RL78 boot firmware answers nothing else.
-const LINE_8O2: u16 = 8 | (1 << 8) | (2 << 11);
+/// SIO_SET_DATA: 8 data bits and 2 stop bits; parity is bits 8 to 10.
+const LINE_8X2: u16 = 8 | (2 << 11);
+const LINE_ODD: u16 = 1 << 8;
 /// Bit 14 of SIO_SET_DATA holds TXD in a break.
 const LINE_BREAK: u16 = 1 << 14;
-/// 3 MHz / 26 = 115385 baud, 0.16 % off 115200.
-const BAUD_DIVISOR: u16 = 26;
+/// The FT232R's baud clock; a divisor of 26 gives 115385 baud, 0.16 % off 115200.
+const BAUD_CLOCK: u32 = 3_000_000;
 
 const USB_TIMEOUT: Duration = Duration::from_millis(1000);
 
@@ -79,6 +80,8 @@ pub struct Ft232r {
     /// Bytes delivered by the bridge but not yet asked for. Kept, never dropped: a reply can
     /// share a USB packet with the start of whatever the target sends next.
     rx: VecDeque<u8>,
+    /// SIO_SET_DATA's value without the break bit.
+    line: u16,
 }
 
 impl fmt::Debug for Ft232r {
@@ -110,6 +113,7 @@ impl Ft232r {
             ep_in,
             ep_out,
             rx: VecDeque::new(),
+            line: LINE_8X2 | LINE_ODD,
         };
         link.configure()
             .map_err(|e| ProbeCreationError::Usb(std::io::Error::other(e.to_string())))?;
@@ -118,8 +122,7 @@ impl Ft232r {
 
     fn configure(&mut self) -> Result<(), Rl78Error> {
         self.ctrl(SIO_RESET, 0)?;
-        self.ctrl(SIO_SET_BAUD_RATE, BAUD_DIVISOR)?;
-        self.ctrl(SIO_SET_DATA, LINE_8O2)?;
+        self.set_line(115_200, true)?;
         self.ctrl(SIO_SET_FLOW_CTRL, 0)?;
         // Without this the link runs about 16 times slower; see the module comment.
         self.ctrl(SIO_SET_LATENCY_TIMER, 1)?;
@@ -211,7 +214,7 @@ impl Rl78Uart for Ft232r {
     }
 
     fn set_tool0_low(&mut self, low: bool) -> Result<(), Rl78Error> {
-        self.ctrl(SIO_SET_DATA, LINE_8O2 | if low { LINE_BREAK } else { 0 })
+        self.ctrl(SIO_SET_DATA, self.line | if low { LINE_BREAK } else { 0 })
     }
 
     fn buffered(&self) -> usize {
@@ -232,6 +235,19 @@ impl Rl78Uart for Ft232r {
             tracing::debug!("rl78: flushed {dropped} stale byte(s)");
         }
         Ok(())
+    }
+
+    fn set_line(&mut self, baud: u32, odd_parity: bool) -> Result<(), Rl78Error> {
+        let divisor = (BAUD_CLOCK + baud / 2) / baud;
+        // Divisors 0 and 1 are special-cased to 3 and 2 Mbaud by the chip.
+        if !(2..=0x3FFF).contains(&divisor) || (BAUD_CLOCK / divisor).abs_diff(baud) > baud / 50 {
+            return Err(Rl78Error::Other(format!(
+                "the FT232R cannot run at {baud} baud"
+            )));
+        }
+        self.ctrl(SIO_SET_BAUD_RATE, divisor as u16)?;
+        self.line = LINE_8X2 | if odd_parity { LINE_ODD } else { 0 };
+        self.ctrl(SIO_SET_DATA, self.line)
     }
 }
 

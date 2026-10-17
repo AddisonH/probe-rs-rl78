@@ -13,6 +13,9 @@
 
 use std::{fmt, time::Duration, time::Instant};
 
+use probe_rs_target::Rl78Monitor;
+
+use super::g23;
 use super::protocol::{self, Args, CodecError, Op, Phase, SECURITY_ID_LEN, SYNC_LEN, Sync};
 use crate::probe::DebugProbeError;
 
@@ -99,6 +102,21 @@ pub enum Rl78Error {
 /// Addresses are 20-bit. [`read_mem`](Self::read_mem) and [`write_mem`](Self::write_mem) reach
 /// `F0000H`–`FFFFFH` only: the monitor addresses memory through `[HL]` with 16-bit addressing.
 pub trait Rl78OcdInterface: Send + fmt::Debug {
+    /// Speak to `monitor` from the next attach on.
+    fn set_monitor(&mut self, monitor: Rl78Monitor) -> Result<(), Rl78Error> {
+        match monitor {
+            Rl78Monitor::G15 => Ok(()),
+            _ => Err(Rl78Error::Unsupported(
+                "this part's debug monitor on this probe",
+            )),
+        }
+    }
+
+    /// The monitor this interface speaks to.
+    fn monitor(&self) -> Rl78Monitor {
+        Rl78Monitor::G15
+    }
+
     /// Reset the target into the debug monitor and unlock it. The target is then halted, and the
     /// returned sync holds its B, C, H and L at entry.
     fn attach(&mut self) -> Result<Sync, Rl78Error>;
@@ -209,7 +227,8 @@ fn first_sync(stream: &[u8], last_data: Option<u8>) -> Option<Sync> {
 
 /// A byte pipe to the target's TOOL0 line, plus control of RESET.
 ///
-/// The UART runs at 115200 baud, 8 data bits, odd parity, 2 stop bits. Implementations must not
+/// The UART starts at 115200 baud, 8 data bits, odd parity, 2 stop bits, the G15 monitor's
+/// framing; [`set_line`](Self::set_line) changes it for the others. Implementations must not
 /// discard bytes they have accepted for transmission (losing the mode byte that way leaves the
 /// part in the flash loader), and should hold the port with a lock the operating system releases if the
 /// process dies.
@@ -231,6 +250,14 @@ pub trait Rl78Uart: Send + fmt::Debug {
 
     /// Discard anything received so far.
     fn flush_input(&mut self) -> Result<(), Rl78Error>;
+
+    /// Set the rate and parity (odd or none); there are always 8 data bits and 2 stop bits.
+    fn set_line(&mut self, baud: u32, odd_parity: bool) -> Result<(), Rl78Error> {
+        let _ = (baud, odd_parity);
+        Err(Rl78Error::Unsupported(
+            "changing the line settings on this probe",
+        ))
+    }
 
     /// How many received bytes are waiting, without asking the transport for more: free, where
     /// [`read`](Self::read) with no timeout costs a USB transfer.
@@ -262,6 +289,7 @@ const STEP_ENABLE: u32 = 0xF_0085;
 /// The on-chip debugger driven over a UART, with the protocol codec in the host.
 pub struct UartOcd<L> {
     link: L,
+    monitor: Rl78Monitor,
     state: protocol::State,
     security_id: [u8; SECURITY_ID_LEN],
     /// The last pseudo-RRM data reply: if the target had stopped, it was the sync's first byte.
@@ -283,6 +311,7 @@ impl<L: Rl78Uart> UartOcd<L> {
     pub fn new(link: L, security_id: [u8; SECURITY_ID_LEN]) -> Self {
         Self {
             link,
+            monitor: Rl78Monitor::G15,
             state: protocol::State::new(),
             security_id,
             rrm_last_data: None,
@@ -548,8 +577,170 @@ impl<L: Rl78Uart> UartOcd<L> {
     }
 }
 
+/// The G23 monitor's link rate, chosen in its entry frame.
+const G23_BAUD: u32 = 1_000_000;
+/// How long the boot ROM takes to answer the G23 monitor's entry frame.
+const T_G23_ENTRY: Duration = Duration::from_millis(100);
+
+impl<L: Rl78Uart> UartOcd<L> {
+    fn g23_xfer(&mut self, req: &[u8], n: usize, op: &'static str) -> Result<Vec<u8>, Rl78Error> {
+        self.g23_xfer_within(req, n, op, REPLY_TIMEOUT)
+    }
+
+    fn g23_xfer_within(
+        &mut self,
+        req: &[u8],
+        n: usize,
+        op: &'static str,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, Rl78Error> {
+        tracing::trace!("rl78 {op}: TX {req:02x?}");
+        self.link.write(req)?;
+        let mut resp = vec![0; n];
+        self.read_exact(&mut resp, op, timeout)?;
+        Ok(resp)
+    }
+
+    fn g23_expect(&mut self, req: &[u8], want: &[u8], op: &'static str) -> Result<(), Rl78Error> {
+        if self.g23_xfer(req, want.len(), op)? != want {
+            return Err(CodecError::Protocol(op).into());
+        }
+        Ok(())
+    }
+
+    fn g23_attach(&mut self) -> Result<(), Rl78Error> {
+        let (baud, code) = *g23::RATES
+            .iter()
+            .find(|(baud, _)| *baud == G23_BAUD)
+            .expect("a rate the frame can choose");
+        self.link.set_line(115_200, false)?;
+        self.boot_mode_reset()?;
+        self.link.write(&g23::entry(code))?;
+        // The monitor answers 00H at the new rate before the host can switch to it, so the
+        // byte is taken whatever it reads as, and 90H is the check.
+        self.link.read(&mut [0], T_G23_ENTRY)?;
+        self.link.set_line(baud, false)?;
+        self.link.flush_input()?;
+        self.state = protocol::State {
+            phase: Phase::Ocd,
+            ..protocol::State::new()
+        };
+        self.g23_unlock().map_err(|e| match e {
+            Rl78Error::Timeout { .. } | Rl78Error::Codec(CodecError::Protocol(_)) => {
+                Rl78Error::NoMonitor
+            }
+            e => e,
+        })
+    }
+
+    fn g23_unlock(&mut self) -> Result<(), Rl78Error> {
+        self.g23_expect(&[g23::VERSION], &g23::VERSION_REPLY, "version")?;
+        match self.g23_xfer(&[g23::UNLOCK], 1, "unlock")?[0] {
+            g23::UNLOCK_ALREADY => {}
+            g23::UNLOCK_CHALLENGE => {
+                let id = g23::unlock_id(&self.security_id);
+                match self.g23_xfer(&id, 1, "security ID")?[0] {
+                    g23::UNLOCK_ACCEPTED => {}
+                    g23::UNLOCK_HALTED => {
+                        tracing::error!(
+                            "rl78: wrong security ID with option byte 000C3H bit 0 clear: the part \
+                             has halted and erases its flash"
+                        );
+                        return Err(Rl78Error::SecurityIdRejected);
+                    }
+                    _ => return Err(Rl78Error::SecurityIdRejected),
+                }
+            }
+            _ => return Err(CodecError::Protocol("unlock").into()),
+        }
+        self.state.locked = false;
+        Ok(())
+    }
+
+    fn g23_read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error> {
+        Self::check_f_segment(address, data.len())?;
+        for (addr, range) in Self::chunks(address, data.len()) {
+            let [lo, hi, ..] = addr.to_le_bytes();
+            let n = range.len();
+            let got = self.g23_xfer(&[g23::READ, lo, hi, n as u8], n, "read")?;
+            data[range].copy_from_slice(&got);
+        }
+        Ok(())
+    }
+
+    fn g23_write(&mut self, address: u32, data: &[u8]) -> Result<(), Rl78Error> {
+        Self::check_f_segment(address, data.len())?;
+        for (addr, range) in Self::chunks(address, data.len()) {
+            let [lo, hi, ..] = addr.to_le_bytes();
+            let mut req = vec![g23::WRITE, lo, hi, range.len() as u8];
+            req.extend_from_slice(&data[range]);
+            self.g23_expect(&req, &[g23::WRITE], "write")?;
+        }
+        Ok(())
+    }
+
+    fn g23_call(&mut self, timeout: Duration) -> Result<(), Rl78Error> {
+        // The echo goes out before the call, so a 90H sent behind it, which the monitor reads
+        // when the routine returns, is what says it has.
+        self.g23_expect(&[g23::CALL], &[g23::CALL], "call")?;
+        let done = self.g23_xfer_within(&[g23::VERSION], 2, "call", timeout)?;
+        if done != g23::VERSION_REPLY {
+            return Err(CodecError::Protocol("call").into());
+        }
+        Ok(())
+    }
+
+    fn g23_execute(&mut self, single_step: bool) -> Result<Option<Sync>, Rl78Error> {
+        self.g23_write(g23::STEP_ENABLE, &[u8::from(single_step)])?;
+        self.g23_expect(&[g23::RUN], &[g23::RUN], "run")?;
+        self.state.locked = true;
+        if !single_step {
+            return Ok(None);
+        }
+        let mut entered = [0];
+        self.read_exact(&mut entered, "step", REPLY_TIMEOUT)?;
+        if entered != [0x00] {
+            return Err(CodecError::Protocol("step").into());
+        }
+        Ok(Some(Sync::default()))
+    }
+
+    fn g23_halt(&mut self) -> Result<Sync, Rl78Error> {
+        match self.g23_xfer(&[0x00], 1, "halt") {
+            Ok(r) if r == [0x00] => Ok(Sync::default()),
+            Ok(_) => Err(CodecError::Protocol("halt").into()),
+            Err(Rl78Error::Timeout { got: 0, .. }) => Err(Rl78Error::HaltUnanswered),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn g23_poll_stopped(&mut self) -> Result<Option<Sync>, Rl78Error> {
+        let mut buf = [0];
+        if self.link.read(&mut buf, Duration::ZERO)? == 0 {
+            return Ok(None);
+        }
+        if buf != [0x00] {
+            return Err(CodecError::Protocol("unsolicited entry").into());
+        }
+        tracing::debug!("rl78: target re-entered the monitor by itself");
+        Ok(Some(Sync::default()))
+    }
+}
+
 impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
+    fn set_monitor(&mut self, monitor: Rl78Monitor) -> Result<(), Rl78Error> {
+        self.monitor = monitor;
+        Ok(())
+    }
+
+    fn monitor(&self) -> Rl78Monitor {
+        self.monitor
+    }
+
     fn attach(&mut self) -> Result<Sync, Rl78Error> {
+        if self.monitor == Rl78Monitor::G23 {
+            return self.g23_attach().map(|()| Sync::default());
+        }
         self.boot_mode_reset()?;
         // CAH is itself the mode byte, not a command after one. Sent after a 00H mode entry it
         // is an unknown flash-loader command (04H), and every later reply is off by one.
@@ -564,6 +755,9 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 
     fn attach_running(&mut self) -> Result<Option<Sync>, Rl78Error> {
+        if self.monitor == Rl78Monitor::G23 {
+            return Ok(None);
+        }
         // An armed monitor answers a 00H within a few milliseconds. Speak to it as to a
         // target the monitor has let run; if nothing answers, the attach under reset starts the
         // codec afresh.
@@ -589,6 +783,9 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 
     fn rrm_read(&mut self, address: u32, data: &mut [u8]) -> Result<Rrm, Rl78Error> {
+        if self.monitor == Rl78Monitor::G23 {
+            return Err(Rl78Error::Unsupported("pseudo-RRM on this monitor"));
+        }
         let len = data.len();
         for (i, byte) in data.iter_mut().enumerate() {
             let a = (address as usize + i) as u16;
@@ -601,6 +798,9 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 
     fn rrm_write(&mut self, address: u32, data: &[u8]) -> Result<Rrm, Rl78Error> {
+        if self.monitor == Rl78Monitor::G23 {
+            return Err(Rl78Error::Unsupported("pseudo-DMM on this monitor"));
+        }
         let mut at = 0;
         while at < data.len() {
             let a = (address as usize + at) as u16;
@@ -620,6 +820,9 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 
     fn unlock(&mut self) -> Result<(), Rl78Error> {
+        if self.monitor == Rl78Monitor::G23 {
+            return self.g23_unlock();
+        }
         self.xfer(Op::UnlockChallenge, &Args::default(), None)?;
         let id = self.security_id;
         let args = Args {
@@ -633,6 +836,9 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 
     fn read_mem(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error> {
+        if self.monitor == Rl78Monitor::G23 {
+            return self.g23_read(address, data);
+        }
         Self::check_f_segment(address, data.len())?;
         for (addr, range) in Self::chunks(address, data.len()) {
             let args = Args {
@@ -648,6 +854,9 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 
     fn write_mem(&mut self, address: u32, data: &[u8]) -> Result<(), Rl78Error> {
+        if self.monitor == Rl78Monitor::G23 {
+            return self.g23_write(address, data);
+        }
         Self::check_f_segment(address, data.len())?;
         for (addr, range) in Self::chunks(address, data.len()) {
             let args = Args {
@@ -666,11 +875,17 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 
     fn call_stub(&mut self, timeout: Duration) -> Result<(), Rl78Error> {
+        if self.monitor == Rl78Monitor::G23 {
+            return self.g23_call(timeout);
+        }
         self.xfer_within(Op::CallKernel, &Args::default(), None, timeout)?;
         Ok(())
     }
 
     fn execute(&mut self, regs: Sync, single_step: bool) -> Result<Option<Sync>, Rl78Error> {
+        if self.monitor == Rl78Monitor::G23 {
+            return self.g23_execute(single_step);
+        }
         self.write_mem(STEP_ENABLE, &[u8::from(single_step)])?;
         let args = Args {
             regs,
@@ -688,6 +903,9 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 
     fn halt(&mut self) -> Result<Sync, Rl78Error> {
+        if self.monitor == Rl78Monitor::G23 {
+            return self.g23_halt();
+        }
         // The sync may already be waiting if the target stopped by itself just now; the caller
         // should have polled first. Anything here now is answered by the halt below.
         let (_, sync) = self
@@ -719,6 +937,9 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
             // Unlocked means halted: the target cannot be running in an open session.
             return Ok(None);
         }
+        if self.monitor == Rl78Monitor::G23 {
+            return self.g23_poll_stopped();
+        }
         // Read only. Sending anything would halt the very target being observed.
         let mut buf = [0u8; SYNC_LEN];
         let n = self.link.read(&mut buf, Duration::ZERO)?;
@@ -735,6 +956,9 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 
     fn erase_all_and_program(&mut self, image: &[u8]) -> Result<(), Rl78Error> {
+        if self.monitor == Rl78Monitor::G23 {
+            return Err(Rl78Error::Unsupported("the flash protocol on this monitor"));
+        }
         let started = Instant::now();
         self.boot_mode_reset()?;
         // 36H instead of 06H is the first ACK of a part with data flash.

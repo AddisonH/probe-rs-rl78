@@ -4,11 +4,12 @@ use std::fmt;
 
 use probe_rs::{
     Error,
+    architecture::rl78::sequences::G23Rl78Sequence,
     config::{DebugSequence, Registry},
     probe::Probe,
     vendor::Vendor,
 };
-use probe_rs_target::{Chip, CoreType};
+use probe_rs_target::{Chip, CoreAccessOptions, CoreType, Rl78Monitor};
 
 /// Renesas RL78.
 #[derive(Debug)]
@@ -21,9 +22,16 @@ impl fmt::Display for RenesasRl78 {
 }
 
 impl Vendor for RenesasRl78 {
-    fn try_create_debug_sequence(&self, _chip: &Chip) -> Option<DebugSequence> {
-        // The default RL78 sequence is chosen by architecture.
-        None
+    fn try_create_debug_sequence(&self, chip: &Chip) -> Option<DebugSequence> {
+        // The default RL78 sequence, the G15's, is chosen by architecture.
+        chip.cores
+            .iter()
+            .find_map(|core| match &core.core_access_options {
+                CoreAccessOptions::Rl78(o) if o.monitor == Rl78Monitor::G23 => {
+                    Some(DebugSequence::Rl78(G23Rl78Sequence::create()))
+                }
+                _ => None,
+            })
     }
 
     /// Detection is limited. The RL78/G15's debugger has no identity register: no IDCODE, no

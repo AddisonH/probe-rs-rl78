@@ -249,13 +249,24 @@ pub struct RiscvCoreAccessOptions {
 }
 
 /// The data required to access an RL78 core.
-///
-/// Empty for now: the RL78 on-chip debugger has one core and no scan chain or access port to
-/// select. It exists so that the core type and its options stay paired, as for the other
-/// architectures.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Rl78CoreAccessOptions {}
+pub struct Rl78CoreAccessOptions {
+    /// The part's on-chip debug monitor.
+    #[serde(default)]
+    pub monitor: Rl78Monitor,
+}
+
+/// The RL78 on-chip debug monitors, which differ between part families.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Rl78Monitor {
+    /// The RL78/G15's.
+    #[default]
+    G15,
+    /// The RL78/G23's, shared by the R7F10x parts.
+    G23,
+}
 
 /// The data required to access an Xtensa core
 #[derive(Debug, Clone, Serialize, Deserialize)]
