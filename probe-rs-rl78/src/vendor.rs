@@ -4,12 +4,12 @@ use std::fmt;
 
 use probe_rs::{
     Error,
-    architecture::rl78::sequences::G23Rl78Sequence,
+    architecture::rl78::{communication_interface::Rl78Error, sequences::G23Rl78Sequence},
     config::{DebugSequence, Registry},
     probe::Probe,
     vendor::Vendor,
 };
-use probe_rs_target::{Chip, CoreAccessOptions, CoreType, Rl78Monitor};
+use probe_rs_target::{Chip, CoreAccessOptions, Rl78Monitor};
 
 /// Renesas RL78.
 #[derive(Debug)]
@@ -34,10 +34,9 @@ impl Vendor for RenesasRl78 {
             })
     }
 
-    /// Detection is limited. The RL78/G15's debugger has no identity register: no IDCODE, no
-    /// ROM table, and Protocol B has no signature command. So this proves an RL78 debug monitor
-    /// answers (it attaches, which resets the part into it), and names the chip only when the
-    /// registry leaves no choice.
+    /// Detection is limited. RL78 debug monitors have no identity register: no IDCODE, no ROM
+    /// table. So this finds which monitor answers (an attach resets the part into it) and names
+    /// the chip only when the registry has one with that monitor.
     fn try_detect_chip_from_probe(
         &self,
         registry: &Registry,
@@ -46,21 +45,41 @@ impl Vendor for RenesasRl78 {
         if !probe.has_rl78_interface() {
             return Ok(None);
         }
-        probe.try_get_rl78_interface()?.attach()?;
+        let interface = probe.try_get_rl78_interface()?;
+        let mut found = None;
+        for monitor in [Rl78Monitor::G15, Rl78Monitor::G23] {
+            interface.set_monitor(monitor)?;
+            match interface.attach() {
+                Ok(_) => {
+                    found = Some(monitor);
+                    break;
+                }
+                Err(Rl78Error::NoMonitor) => continue,
+                Err(e) => return Err(e.into()),
+            }
+        }
+        let Some(monitor) = found else {
+            return Ok(None);
+        };
 
         let candidates: Vec<&str> = registry
             .families()
             .iter()
             .flat_map(|family| family.variants.iter())
-            .filter(|chip| chip.cores.iter().any(|c| c.core_type == CoreType::Rl78))
+            .filter(|chip| {
+                chip.cores.iter().any(|c| {
+                    matches!(&c.core_access_options,
+                        CoreAccessOptions::Rl78(o) if o.monitor == monitor)
+                })
+            })
             .map(|chip| chip.name.as_str())
             .collect();
         match candidates[..] {
             [only] => Ok(Some(only.to_owned())),
             _ => {
                 tracing::warn!(
-                    "An RL78 debug monitor answered, but the RL78/G15 class has no identity \
-                     register to tell {} candidates apart. Name the chip with --chip.",
+                    "An RL78 {monitor:?} debug monitor answered, but it has no identity register \
+                     to tell {} candidates apart. Name the chip with --chip.",
                     candidates.len()
                 );
                 Ok(None)
