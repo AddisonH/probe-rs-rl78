@@ -622,3 +622,29 @@ fn g23_continue_from_a_fresh_attach_starts_at_the_entry() {
     assert!(!s.core().core_halted().unwrap());
     s.assert_done();
 }
+
+#[test]
+fn g23_a_monitor_left_halted_is_not_a_running_program() {
+    // It answers the halt byte by restarting its handshake, but the unlock finds it unlocked
+    // still: resuming it would run the boot ROM's idle loop, which takes no halt.
+    let mut s = Script::default();
+    s.line(Line::Rate(1_000_000, false))
+        .line(Line::Flush)
+        .exchange(&[0x00], &[0x00])
+        .exchange(&[0x90], &[0x05, 0x01])
+        .exchange(&[0x91], &[0xF0]);
+    let mut ocd = UartOcd::new(s.0, [0; 10]);
+    ocd.set_monitor(Rl78Monitor::G23).unwrap();
+    assert!(ocd.attach_running().unwrap().is_none());
+    ocd.link_mut().assert_done();
+
+    let mut s = Script::default();
+    s.line(Line::Rate(1_000_000, false))
+        .line(Line::Flush)
+        .exchange(&[0x00], &[0x00])
+        .g23_unlock();
+    let mut ocd = UartOcd::new(s.0, [0; 10]);
+    ocd.set_monitor(Rl78Monitor::G23).unwrap();
+    assert!(ocd.attach_running().unwrap().is_some());
+    ocd.link_mut().assert_done();
+}

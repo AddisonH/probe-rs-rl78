@@ -625,7 +625,7 @@ impl<L: Rl78Uart> UartOcd<L> {
             phase: Phase::Ocd,
             ..protocol::State::new()
         };
-        self.g23_unlock().map_err(|e| match e {
+        self.g23_unlock().map(|_| ()).map_err(|e| match e {
             Rl78Error::Timeout { .. } | Rl78Error::Codec(CodecError::Protocol(_)) => {
                 Rl78Error::NoMonitor
             }
@@ -648,14 +648,23 @@ impl<L: Rl78Uart> UartOcd<L> {
             phase: Phase::Ocd,
             ..protocol::State::new()
         };
-        self.g23_unlock()?;
+        // A monitor left halted by an earlier session answers the 00H too, by restarting its
+        // handshake, but is still unlocked. That part is attached under reset, as on the G15.
+        if self.g23_unlock()? {
+            tracing::debug!("rl78: the monitor was already halted, not running a program");
+            return Ok(None);
+        }
         Ok(Some(Sync::default()))
     }
 
-    fn g23_unlock(&mut self) -> Result<(), Rl78Error> {
+    /// Unlock; true if the monitor was unlocked already.
+    fn g23_unlock(&mut self) -> Result<bool, Rl78Error> {
         self.g23_expect(&[g23::VERSION], &g23::VERSION_REPLY, "version")?;
         match self.g23_xfer(&[g23::UNLOCK], 1, "unlock")?[0] {
-            g23::UNLOCK_ALREADY => {}
+            g23::UNLOCK_ALREADY => {
+                self.state.locked = false;
+                return Ok(true);
+            }
             g23::UNLOCK_CHALLENGE => {
                 let id = g23::unlock_id(&self.security_id);
                 match self.g23_xfer(&id, 1, "security ID")?[0] {
@@ -673,7 +682,7 @@ impl<L: Rl78Uart> UartOcd<L> {
             _ => return Err(CodecError::Protocol("unlock").into()),
         }
         self.state.locked = false;
-        Ok(())
+        Ok(false)
     }
 
     fn g23_read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error> {
@@ -840,7 +849,7 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
 
     fn unlock(&mut self) -> Result<(), Rl78Error> {
         if self.monitor == Rl78Monitor::G23 {
-            return self.g23_unlock();
+            return self.g23_unlock().map(|_| ());
         }
         self.xfer(Op::UnlockChallenge, &Args::default(), None)?;
         let id = self.security_id;
