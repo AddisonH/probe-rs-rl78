@@ -6,7 +6,7 @@
 //! Its operands are in RAM too, not patched into its code, so it is staged once per halt and each
 //! call costs one write (operands and data together), one `5BH` and a one-byte read.
 
-use std::{borrow::Cow, ops::Range, time::Duration};
+use std::{borrow::Cow, collections::BTreeMap, ops::Range, time::Duration};
 
 use probe_rs_target::{MemoryRegion, Rl78Monitor};
 
@@ -18,7 +18,8 @@ use super::{
 };
 use crate::{
     CoreInterface, Error, MemoryInterface, Target,
-    flashing::DebugFlashSequence,
+    config::NvmRegion,
+    flashing::{DebugFlashSequence, FlashLayout},
     session::{Permissions, Session},
 };
 
@@ -405,6 +406,18 @@ impl Rl78<'_> {
             })
     }
 
+    /// Back into the monitor after the flash protocol has erased the blocks at `erased`, under
+    /// reset as the protocol leaves the part.
+    fn attach_after_flash_protocol(&mut self, erased: &[u32]) -> Result<(), Error> {
+        let block = self.flash_block();
+        for &at in erased {
+            self.state.breakpoints.erased(at..at + block);
+        }
+        let sync = self.interface.attach()?;
+        self.state.attached(Attached::UnderReset(sync));
+        Ok(())
+    }
+
     /// The code flash erase unit.
     pub(super) fn flash_block(&self) -> u32 {
         if self.g23() { 0x800 } else { 0x400 }
@@ -521,8 +534,9 @@ impl Rl78<'_> {
     }
 }
 
-/// Code flash programming for the RL78/G15 class, as probe-rs's host-side flasher drives it:
-/// a 1 KB block is a sector, and pages are written 64 words to a call.
+/// Code flash programming as probe-rs's host-side flasher drives it. On the RL78/G15 class, by
+/// self-programming: a 1 KB block is a sector, and pages are written 64 words to a call. On the
+/// G23, whole images over the flash protocol ([`g23`](Self::g23)).
 ///
 /// Two things are added to an image on its way into flash, both in its first page and both only
 /// where the image leaves the bytes erased:
@@ -537,6 +551,8 @@ impl Rl78<'_> {
 #[derive(Debug)]
 pub struct Rl78Flash {
     debug_stub: bool,
+    /// Whole images over the flash protocol rather than by self-programming.
+    flash_protocol: bool,
 }
 
 /// `MOV !F0080H,#0C5H` / `MOV FFFAFH,#40H` / `BR !entry`, without the entry.
@@ -550,12 +566,17 @@ impl Rl78Flash {
     pub fn from_env() -> Self {
         Self {
             debug_stub: std::env::var("PROBE_RS_RL78_DEBUG_STUB").as_deref() != Ok("0"),
+            flash_protocol: false,
         }
     }
 
-    /// The sequence for a part whose monitor has no debug stub yet: the security ID only.
-    pub fn without_stub() -> Self {
-        Self { debug_stub: false }
+    /// The RL78/G23's sequence: no debug stub, and whole images over the flash protocol
+    /// (Protocol C), which costs a reset but needs nothing of the program or its clock.
+    pub fn g23() -> Self {
+        Self {
+            debug_stub: false,
+            flash_protocol: true,
+        }
     }
 
     /// `data` for `address` as it goes into flash: the image's first page with the session's
@@ -704,6 +725,18 @@ pub(crate) fn attach_or_recover(
     Ok(Attached::UnderReset(interface.attach()?))
 }
 
+/// Blocks as the flash protocol writes them: contiguous ones in one run, erased ones not at all.
+fn block_runs(blocks: &BTreeMap<u32, Vec<u8>>) -> Vec<(u32, Vec<u8>)> {
+    let mut runs: Vec<(u32, Vec<u8>)> = Vec::new();
+    for (&at, data) in blocks.iter().filter(|(_, d)| d.iter().any(|&b| b != 0xFF)) {
+        match runs.last_mut() {
+            Some((start, run)) if *start + run.len() as u32 == at => run.extend(data),
+            _ => runs.push((at, data.clone())),
+        }
+    }
+    runs
+}
+
 /// How a session found the part.
 #[derive(Debug)]
 pub(crate) enum Attached {
@@ -728,7 +761,66 @@ impl DebugFlashSequence for Rl78Flash {
 
     fn erase_all(&self, session: &mut Session) -> Result<(), Error> {
         let flash = code_flash(session.target())?;
-        session.get_rl78_core()?.flash_erase(flash)
+        let mut core = session.get_rl78_core()?;
+        if self.flash_protocol {
+            // A G23 whose ID is erased refuses every ID, so block 0 gets the session's back.
+            let erase: Vec<u32> = flash.clone().step_by(g23::BLOCK).collect();
+            let first = monitor_image_g23(g23::BLOCK, core.interface.security_id());
+            core.interface
+                .flash_protocol_write(&erase, &[(0, &first)])?;
+            return core.attach_after_flash_protocol(&erase);
+        }
+        core.flash_erase(flash)
+    }
+
+    fn program_image(
+        &self,
+        session: &mut Session,
+        regions: &[(&NvmRegion, &FlashLayout)],
+    ) -> Result<bool, Error> {
+        if !self.flash_protocol {
+            return Ok(false);
+        }
+        let flash = code_flash(session.target())?;
+        let block = g23::BLOCK as u32;
+        let mut blocks: BTreeMap<u32, Vec<u8>> = BTreeMap::new();
+        for (_, layout) in regions {
+            for sector in layout.sectors() {
+                blocks
+                    .entry(sector.address() as u32 & !(block - 1))
+                    .or_insert_with(|| vec![0xFF; g23::BLOCK]);
+            }
+            for page in layout.pages() {
+                let at = page.address() as u32;
+                let base = at & !(block - 1);
+                let end = at + page.data().len() as u32;
+                let data = blocks
+                    .get_mut(&base)
+                    .filter(|_| flash.start <= at && end <= flash.end.min(base + block));
+                let Some(data) = data else {
+                    return Err(Rl78Error::Other(format!(
+                        "the flash protocol writes whole code flash blocks; {at:05X}H-{:05X}H is not \
+                         in one",
+                        end - 1
+                    ))
+                    .into());
+                };
+                data[(at - base) as usize..(end - base) as usize].copy_from_slice(page.data());
+            }
+        }
+        let mut core = session.get_rl78_core()?;
+        if let Some(first) = blocks.get_mut(&0) {
+            let image = self
+                .debug_image(0, first, core.interface.security_id(), true)
+                .into_owned();
+            *first = image;
+        }
+        let runs = block_runs(&blocks);
+        let writes: Vec<(u32, &[u8])> = runs.iter().map(|(at, d)| (*at, &d[..])).collect();
+        let erase: Vec<u32> = blocks.into_keys().collect();
+        core.interface.flash_protocol_write(&erase, &writes)?;
+        core.attach_after_flash_protocol(&erase)?;
+        Ok(true)
     }
 
     fn erase_sector(&self, session: &mut Session, address: u64) -> Result<(), Error> {
@@ -807,6 +899,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn contiguous_blocks_are_one_run_and_erased_ones_none() {
+        let block = |b: u8| vec![b; g23::BLOCK];
+        let blocks = BTreeMap::from([
+            (0x0000, block(1)),
+            (0x0800, block(2)),
+            (0x1000, block(0xFF)),
+            (0x1800, block(3)),
+            (0x3000, block(4)),
+        ]);
+        let runs: Vec<(u32, usize)> = block_runs(&blocks)
+            .iter()
+            .map(|(at, data)| (*at, data.len()))
+            .collect();
+        assert_eq!(runs, [(0x0000, 0x1000), (0x1800, 0x800), (0x3000, 0x800)]);
+    }
+
     /// A first page as a toolchain links it: reset vector to 000D8H, option bytes with
     /// OCDENSET, the ID and the stub's place erased, code from 000D8H.
     fn linked_page() -> Vec<u8> {
@@ -822,7 +931,11 @@ mod tests {
     #[test]
     fn first_page_gets_the_id_and_the_stub() {
         let page = linked_page();
-        let out = Rl78Flash { debug_stub: true }.debug_image(0, &page, ID, false);
+        let out = Rl78Flash {
+            debug_stub: true,
+            flash_protocol: false,
+        }
+        .debug_image(0, &page, ID, false);
         assert_eq!(out[..2], [0xCE, 0x00], "reset vector to the stub");
         assert_eq!(out[0xC3], 0x8F, "debug-in-use bits 3 and 1");
         assert_eq!(out[SECURITY_ID], ID);
@@ -838,7 +951,11 @@ mod tests {
         let mut page = linked_page();
         page[0xC4] = 0x00;
         page[0xCE] = 0x00;
-        let out = Rl78Flash { debug_stub: true }.debug_image(0, &page, ID, false);
+        let out = Rl78Flash {
+            debug_stub: true,
+            flash_protocol: false,
+        }
+        .debug_image(0, &page, ID, false);
         assert_eq!(
             *out,
             page[..],
@@ -846,13 +963,21 @@ mod tests {
         );
 
         let page = linked_page();
-        let out = Rl78Flash { debug_stub: false }.debug_image(0, &page, ID, false);
+        let out = Rl78Flash {
+            debug_stub: false,
+            flash_protocol: false,
+        }
+        .debug_image(0, &page, ID, false);
         assert_eq!(out[..2], page[..2], "no stub when asked");
         assert_eq!(out[SECURITY_ID], ID, "the ID all the same");
 
         let tail = vec![0xFF; 0x100];
         assert_eq!(
-            *Rl78Flash { debug_stub: true }.debug_image(0x100, &tail, ID, false),
+            *Rl78Flash {
+                debug_stub: true,
+                flash_protocol: false,
+            }
+            .debug_image(0x100, &tail, ID, false),
             tail[..]
         );
     }

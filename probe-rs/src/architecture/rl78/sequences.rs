@@ -60,6 +60,6 @@ impl G23Rl78Sequence {
 
 impl Rl78DebugSequence for G23Rl78Sequence {
     fn debug_flash_sequence(&self) -> Option<Arc<dyn DebugFlashSequence>> {
-        Some(Arc::new(Rl78Flash::without_stub()))
+        Some(Arc::new(Rl78Flash::g23()))
     }
 }

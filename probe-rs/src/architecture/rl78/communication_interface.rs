@@ -188,6 +188,21 @@ pub trait Rl78OcdInterface: Send + fmt::Debug {
         let _ = image;
         Err(Rl78Error::Unsupported("the flash protocol on this probe"))
     }
+
+    /// Program code flash over the flash protocol, which needs nothing of the part's program,
+    /// clock or debug stub: erase the blocks at `erase`, then write each of `writes`, whole
+    /// blocks from a block boundary. The part is left in flash programming mode;
+    /// [`attach`](Self::attach) after.
+    fn flash_protocol_write(
+        &mut self,
+        erase: &[u32],
+        writes: &[(u32, &[u8])],
+    ) -> Result<(), Rl78Error> {
+        let _ = (erase, writes);
+        Err(Rl78Error::Unsupported(
+            "programming over the flash protocol on this probe",
+        ))
+    }
 }
 
 /// What a pseudo-RRM/DMM access found.
@@ -734,33 +749,47 @@ impl<L: Rl78Uart> UartOcd<L> {
     /// Erase all of code flash and write `image` over Protocol C, block by block, leaving out
     /// blocks that are all `FFH`.
     fn g23_erase_all_and_program(&mut self, image: &[u8]) -> Result<(), Rl78Error> {
+        let erase: Vec<u32> = (0..image.len() as u32).step_by(g23::BLOCK).collect();
+        let writes: Vec<(u32, &[u8])> = image
+            .chunks(g23::BLOCK)
+            .enumerate()
+            .filter(|(_, data)| data.iter().any(|&b| b != 0xFF))
+            .map(|(i, data)| ((i * g23::BLOCK) as u32, data))
+            .collect();
+        self.g23_flash_protocol_write(&erase, &writes)
+    }
+
+    fn g23_flash_protocol_write(
+        &mut self,
+        erase: &[u32],
+        writes: &[(u32, &[u8])],
+    ) -> Result<(), Rl78Error> {
         let started = Instant::now();
         self.g23_flash_mode()?;
-        let at = |a: usize| [a as u8, (a >> 8) as u8, (a >> 16) as u8];
-        for block in (0..image.len()).step_by(g23::BLOCK) {
+        let at = |a: u32| [a as u8, (a >> 8) as u8, (a >> 16) as u8];
+        for &block in erase {
             let [l, m, h] = at(block);
             self.g23_pc_command("block erase", &[g23::PC_BLOCK_ERASE, l, m, h])?;
         }
-        for (i, data) in image.chunks(g23::BLOCK).enumerate() {
-            if data.iter().all(|&b| b == 0xFF) {
-                continue;
-            }
-            let start = i * g23::BLOCK;
-            let ([sl, sm, sh], [el, em, eh]) = (at(start), at(start + data.len() - 1));
+        let mut written = 0;
+        for &(start, data) in writes {
+            let end = start + data.len() as u32 - 1;
+            let ([sl, sm, sh], [el, em, eh]) = (at(start), at(end));
             self.g23_pc_command("programming", &[g23::PC_PROGRAM, sl, sm, sh, el, em, eh])?;
             let pages = data.chunks(256).count();
             for (j, page) in data.chunks(256).enumerate() {
-                let end = if j + 1 == pages { g23::ETX } else { g23::ETB };
-                self.link.write(&g23::packet(g23::STX, page, end))?;
+                let close = if j + 1 == pages { g23::ETX } else { g23::ETB };
+                self.link.write(&g23::packet(g23::STX, page, close))?;
                 let mut r = [0; 6];
                 self.read_exact(&mut r, "programming", REPLY_TIMEOUT)?;
                 pb_status("programming", r[2], &[g23::ACK])?;
                 pb_status("programming", r[3], &[g23::ACK])?;
             }
+            written += data.len();
         }
         tracing::info!(
-            "rl78: wrote {} bytes over the flash protocol in {:.2?}",
-            image.len(),
+            "rl78: erased {} blocks and wrote {written} bytes over the flash protocol in {:.2?}",
+            erase.len(),
             started.elapsed()
         );
         Ok(())
@@ -1228,6 +1257,19 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
         }
         tracing::debug!("rl78: target re-entered the monitor by itself: {buf:02x?}");
         Ok(Some(Sync::from_bytes(&buf)))
+    }
+
+    fn flash_protocol_write(
+        &mut self,
+        erase: &[u32],
+        writes: &[(u32, &[u8])],
+    ) -> Result<(), Rl78Error> {
+        if self.monitor != Rl78Monitor::G23 {
+            return Err(Rl78Error::Unsupported(
+                "programming the G15 class over the flash protocol",
+            ));
+        }
+        self.g23_flash_protocol_write(erase, writes)
     }
 
     fn erase_all_and_program(&mut self, image: &[u8]) -> Result<(), Rl78Error> {
