@@ -294,6 +294,21 @@ pub struct UartOcd<L> {
     security_id: [u8; SECURITY_ID_LEN],
     /// The last pseudo-RRM data reply: if the target had stopped, it was the sync's first byte.
     rrm_last_data: Option<u8>,
+    g23: G23Link,
+}
+
+/// The G23 monitor's link: its rate, and what the CPU clock allows.
+#[derive(Debug, Default)]
+struct G23Link {
+    /// At [`G23_BAUD`]; at [`G23_RUN_BAUD`] otherwise.
+    fast: bool,
+    /// Whether the CPU clock keeps up with [`G23_BAUD`], read once per halt.
+    fast_ok: Option<bool>,
+    /// The CPU runs from the subsystem clock: `None` until known, and paced as if it did.
+    sub: Option<bool>,
+    /// What the session last put at the gate, and whether a rate change has overwritten it.
+    gate: Option<Vec<u8>>,
+    gate_clobbered: bool,
 }
 
 impl<L: fmt::Debug> fmt::Debug for UartOcd<L> {
@@ -315,6 +330,7 @@ impl<L: Rl78Uart> UartOcd<L> {
             state: protocol::State::new(),
             security_id,
             rrm_last_data: None,
+            g23: G23Link::default(),
         }
     }
 
@@ -577,14 +593,57 @@ impl<L: Rl78Uart> UartOcd<L> {
     }
 }
 
-/// The G23 monitor's link rate, chosen in its entry frame.
+/// The G23 monitor's link for large transfers while halted.
 const G23_BAUD: u32 = 1_000_000;
+/// The link whenever the program runs, as the vendor has it. The unlock that follows every
+/// stop reads eleven bytes at about 30 clocks each, which a CPU on its slowest main clock
+/// (1 MHz) keeps up with at this rate but not at [`G23_BAUD`].
+const G23_RUN_BAUD: u32 = 115_200;
+/// A transfer this large is worth moving the link to [`G23_BAUD`] for.
+const G23_BULK: usize = 64;
+/// On the subsystem clock (32 kHz) the monitor takes about a millisecond to take in a byte, at
+/// any rate, so the host sends one at a time. It also takes that long after sending its last
+/// byte to clear the link's done flag, which loses a byte that has arrived by then, so the
+/// wait comes before each byte.
+const T_G23_PACE: Duration = Duration::from_millis(2);
+/// The monitor waits about 3,300 clocks before answering a halt or a step: 3 ms at 1 MHz,
+/// 100 ms on the subsystem clock.
+const T_G23_SUB_ENTRY: Duration = Duration::from_millis(40);
+/// [`T_ATTACH_RUNNING`], for a program on the subsystem clock.
+const T_G23_ATTACH_RUNNING: Duration = Duration::from_millis(250);
 /// How long the boot ROM takes to answer the G23 monitor's entry frame.
 const T_G23_ENTRY: Duration = Duration::from_millis(100);
+
+fn g23_rate_code(baud: u32) -> u8 {
+    g23::RATES
+        .iter()
+        .find(|(b, _)| *b == baud)
+        .expect("a rate the frame can choose")
+        .1
+}
+
+/// Whether the `n` bytes from `address` include `reg`.
+fn g23_covers(address: u32, n: usize, reg: u32) -> bool {
+    (address..address + n as u32).contains(&reg)
+}
 
 impl<L: Rl78Uart> UartOcd<L> {
     fn g23_xfer(&mut self, req: &[u8], n: usize, op: &'static str) -> Result<Vec<u8>, Rl78Error> {
         self.g23_xfer_within(req, n, op, REPLY_TIMEOUT)
+    }
+
+    /// Send `req`, a byte at a time unless the CPU is known to run from a main clock.
+    fn g23_send(&mut self, req: &[u8], op: &'static str) -> Result<(), Rl78Error> {
+        if self.g23.sub == Some(false) {
+            tracing::trace!("rl78 {op}: TX {req:02x?}");
+            return self.link.write(req);
+        }
+        tracing::trace!("rl78 {op}: TX {req:02x?}, a byte at a time");
+        for &b in req {
+            std::thread::sleep(T_G23_PACE);
+            self.link.write(&[b])?;
+        }
+        Ok(())
     }
 
     fn g23_xfer_within(
@@ -594,8 +653,7 @@ impl<L: Rl78Uart> UartOcd<L> {
         op: &'static str,
         timeout: Duration,
     ) -> Result<Vec<u8>, Rl78Error> {
-        tracing::trace!("rl78 {op}: TX {req:02x?}");
-        self.link.write(req)?;
+        self.g23_send(req, op)?;
         let mut resp = vec![0; n];
         self.read_exact(&mut resp, op, timeout)?;
         Ok(resp)
@@ -609,21 +667,21 @@ impl<L: Rl78Uart> UartOcd<L> {
     }
 
     fn g23_attach(&mut self) -> Result<(), Rl78Error> {
-        let (baud, code) = *g23::RATES
-            .iter()
-            .find(|(baud, _)| *baud == G23_BAUD)
-            .expect("a rate the frame can choose");
-        self.link.set_line(115_200, false)?;
+        self.link.set_line(G23_RUN_BAUD, false)?;
         self.boot_mode_reset()?;
-        self.link.write(&g23::entry(0xCA, code))?;
-        // The monitor answers 00H at the new rate before the host can switch to it, so the
-        // byte is taken whatever it reads as, and 90H is the check.
-        self.link.read(&mut [0], T_G23_ENTRY)?;
-        self.link.set_line(baud, false)?;
-        self.link.flush_input()?;
+        self.link
+            .write(&g23::entry(0xCA, g23_rate_code(G23_RUN_BAUD)))?;
+        let mut r = [0];
+        if self.link.read(&mut r, T_G23_ENTRY)? == 0 || r != [0x00] {
+            return Err(Rl78Error::NoMonitor);
+        }
         self.state = protocol::State {
             phase: Phase::Ocd,
             ..protocol::State::new()
+        };
+        self.g23 = G23Link {
+            sub: Some(false),
+            ..G23Link::default()
         };
         self.g23_unlock().map(|_| ()).map_err(|e| match e {
             Rl78Error::Timeout { .. } | Rl78Error::Codec(CodecError::Protocol(_)) => {
@@ -708,20 +766,25 @@ impl<L: Rl78Uart> UartOcd<L> {
         Ok(())
     }
 
-    /// A program the debugger started keeps the monitor's link at [`G23_BAUD`], and halts on
-    /// a `00H` there.
+    /// A program the debugger started keeps the monitor's link at [`G23_RUN_BAUD`], and halts
+    /// on a `00H` there.
     fn g23_attach_running(&mut self) -> Result<Option<Sync>, Rl78Error> {
-        self.link.set_line(G23_BAUD, false)?;
+        self.link.set_line(G23_RUN_BAUD, false)?;
         self.link.flush_input()?;
+        let sent = Instant::now();
         self.link.write(&[0x00])?;
         let mut r = [0];
-        if self.link.read(&mut r, T_ATTACH_RUNNING)? == 0 || r != [0x00] {
+        if self.link.read(&mut r, T_G23_ATTACH_RUNNING)? == 0 || r != [0x00] {
             tracing::debug!("rl78: no program running with the monitor armed");
             return Ok(None);
         }
         self.state = protocol::State {
             phase: Phase::Ocd,
             ..protocol::State::new()
+        };
+        self.g23 = G23Link {
+            sub: Some(sent.elapsed() > T_G23_SUB_ENTRY),
+            ..G23Link::default()
         };
         // A monitor left halted by an earlier session answers the 00H too, by restarting its
         // handshake, but is still unlocked. That part is attached under reset, as on the G15,
@@ -762,32 +825,122 @@ impl<L: Rl78Uart> UartOcd<L> {
             _ => return Err(CodecError::Protocol("unlock").into()),
         }
         self.state.locked = false;
+        // A stop nothing timed: CKC says whether to go on sending a byte at a time.
+        if self.g23.sub.is_none() {
+            let mut ckc = [0];
+            self.g23_read_raw(g23::CKC, &mut ckc)?;
+        }
         Ok(false)
     }
 
     fn g23_read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error> {
         Self::check_f_segment(address, data.len())?;
+        self.g23_bulk(data.len())?;
+        self.g23_read_raw(address, data)
+    }
+
+    fn g23_read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error> {
         for (addr, range) in Self::chunks(address, data.len()) {
             let [lo, hi, ..] = addr.to_le_bytes();
             let n = range.len();
             let got = self.g23_xfer(&[g23::READ, lo, hi, n as u8], n, "read")?;
             data[range].copy_from_slice(&got);
         }
+        if g23_covers(address, data.len(), g23::CKC) {
+            self.g23.sub = Some(data[(g23::CKC - address) as usize] & g23::CKC_CLS != 0);
+        }
         Ok(())
     }
 
     fn g23_write(&mut self, address: u32, data: &[u8]) -> Result<(), Rl78Error> {
         Self::check_f_segment(address, data.len())?;
+        let clock = [g23::CSC, g23::CKC, g23::HOCODIV, g23::MOCODIV]
+            .into_iter()
+            .any(|reg| g23_covers(address, data.len(), reg));
+        if clock {
+            if self.g23.fast {
+                self.g23_set_rate(false)?;
+            }
+            self.g23.fast_ok = None;
+        } else {
+            self.g23_bulk(data.len())?;
+        }
+        if address == g23::GATE {
+            self.g23.gate = Some(data.to_vec());
+            self.g23.gate_clobbered = false;
+        }
+        self.g23_write_raw(address, data)
+    }
+
+    fn g23_write_raw(&mut self, address: u32, data: &[u8]) -> Result<(), Rl78Error> {
         for (addr, range) in Self::chunks(address, data.len()) {
             let [lo, hi, ..] = addr.to_le_bytes();
             let mut req = vec![g23::WRITE, lo, hi, range.len() as u8];
             req.extend_from_slice(&data[range]);
             self.g23_expect(&req, &[g23::WRITE], "write")?;
         }
+        // A switch to the subsystem clock takes effect as the byte is stored, and one away
+        // from it within a few of its cycles, before the host can send again.
+        if g23_covers(address, data.len(), g23::CKC) {
+            self.g23.sub = Some(data[(g23::CKC - address) as usize] & g23::CKC_CSS != 0);
+        }
+        Ok(())
+    }
+
+    /// Before a transfer of `n` bytes: move the link to [`G23_BAUD`] if it is large and the
+    /// CPU clock keeps up.
+    fn g23_bulk(&mut self, n: usize) -> Result<(), Rl78Error> {
+        if self.g23.fast || n < G23_BULK || !self.g23_fast_ok()? {
+            return Ok(());
+        }
+        self.g23_set_rate(true)
+    }
+
+    /// Whether the monitor keeps up with [`G23_BAUD`]: its write loop takes about 20 clocks a
+    /// byte, so a CPU at 3 MHz or more. X1's frequency cannot be read, so not on X1.
+    fn g23_fast_ok(&mut self) -> Result<bool, Rl78Error> {
+        if let Some(ok) = self.g23.fast_ok {
+            return Ok(ok);
+        }
+        let mut ckc = [0];
+        self.g23_read_raw(g23::CKC, &mut ckc)?;
+        let mut div = [0];
+        let ok = if ckc[0] & (g23::CKC_CLS | g23::CKC_MCS) != 0 {
+            false
+        } else if ckc[0] & g23::CKC_MCS1 != 0 {
+            self.g23_read_raw(g23::MOCODIV, &mut div)?;
+            div[0] == 0
+        } else {
+            self.g23_read_raw(g23::HOCODIV, &mut div)?;
+            div[0] <= 3
+        };
+        self.g23.fast_ok = Some(ok);
+        Ok(ok)
+    }
+
+    /// Move the link to [`G23_BAUD`] or back to [`G23_RUN_BAUD`]. The routine overwrites the
+    /// gate; the next call puts back what the session had there.
+    fn g23_set_rate(&mut self, fast: bool) -> Result<(), Rl78Error> {
+        let baud = if fast { G23_BAUD } else { G23_RUN_BAUD };
+        let mut ckc = [0];
+        self.g23_read_raw(g23::CKC, &mut ckc)?;
+        self.g23_write_raw(g23::GATE, &g23::rate_routine(ckc[0], g23_rate_code(baud)))?;
+        self.g23.gate_clobbered = true;
+        // The echo goes out at the old rate, before the routine runs.
+        self.g23_expect(&[g23::CALL], &[g23::CALL], "rate change")?;
+        self.link.set_line(baud, false)?;
+        self.g23_expect(&[g23::VERSION], &g23::VERSION_REPLY, "rate change")?;
+        self.g23.fast = fast;
+        tracing::debug!("rl78: link at {baud} baud");
         Ok(())
     }
 
     fn g23_call(&mut self, timeout: Duration) -> Result<(), Rl78Error> {
+        if std::mem::take(&mut self.g23.gate_clobbered)
+            && let Some(gate) = self.g23.gate.clone()
+        {
+            self.g23_write_raw(g23::GATE, &gate)?;
+        }
         // The echo goes out before the call, so a 90H sent behind it, which the monitor reads
         // when the routine returns, is what says it has.
         self.g23_expect(&[g23::CALL], &[g23::CALL], "call")?;
@@ -800,9 +953,19 @@ impl<L: Rl78Uart> UartOcd<L> {
 
     fn g23_execute(&mut self, single_step: bool) -> Result<Option<Sync>, Rl78Error> {
         self.g23_write(g23::STEP_ENABLE, &[u8::from(single_step)])?;
+        if self.g23.fast {
+            self.g23_set_rate(false)?;
+        }
+        let sent = Instant::now();
         self.g23_expect(&[g23::RUN], &[g23::RUN], "run")?;
         self.state.locked = true;
+        // The monitor plants a RET at the gate on every entry.
+        self.g23 = G23Link {
+            sub: self.g23.sub,
+            ..G23Link::default()
+        };
         if !single_step {
+            self.g23.sub = None;
             return Ok(None);
         }
         let mut entered = [0];
@@ -810,11 +973,15 @@ impl<L: Rl78Uart> UartOcd<L> {
         if entered != [0x00] {
             return Err(CodecError::Protocol("step").into());
         }
+        self.g23.sub = Some(sent.elapsed() > T_G23_SUB_ENTRY);
         Ok(Some(Sync::default()))
     }
 
     fn g23_halt(&mut self) -> Result<Sync, Rl78Error> {
-        match self.g23_xfer(&[0x00], 1, "halt") {
+        let sent = Instant::now();
+        let halt = self.g23_xfer(&[0x00], 1, "halt");
+        self.g23.sub = Some(sent.elapsed() > T_G23_SUB_ENTRY);
+        match halt {
             Ok(r) if r == [0x00] => Ok(Sync::default()),
             Ok(_) => Err(CodecError::Protocol("halt").into()),
             Err(Rl78Error::Timeout { got: 0, .. }) => Err(Rl78Error::HaltUnanswered),

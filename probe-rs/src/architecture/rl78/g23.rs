@@ -48,6 +48,25 @@ pub const DFLCTL: u32 = 0xF_0090;
 /// The rates the entry frame can choose, and their codes.
 pub const RATES: [(u32, u8); 4] = [(115_200, 0), (250_000, 1), (500_000, 2), (1_000_000, 3)];
 
+/// The clock registers. CKC's CLS, MCS and MCS1 say what the CPU runs from: the subsystem
+/// clock, the high-speed system clock (X1), the middle-speed on-chip oscillator.
+pub const CSC: u32 = 0xF_FFA1;
+pub const CKC: u32 = 0xF_FFA4;
+pub const HOCODIV: u32 = 0xF_00A8;
+pub const MOCODIV: u32 = 0xF_00F2;
+pub const CKC_CLS: u8 = 1 << 7;
+pub const CKC_CSS: u8 = 1 << 6;
+pub const CKC_MCS: u8 = 1 << 5;
+pub const CKC_MCS1: u8 = 1 << 1;
+
+/// The routine the vendor runs at the gate to move the link to `rate_code`: `MOV FFFAFH,#0`
+/// (the link's UART off), `MOV CKC,#ckc` (CKC written with its own value), `MOV FFFAFH,#40H`
+/// with the rate (on again at the new rate), `RET`.
+pub fn rate_routine(ckc: u8, rate_code: u8) -> [u8; 10] {
+    let on = 0x40 | rate_code;
+    [0xCE, 0xAF, 0x00, 0xCE, 0xA4, ckc, 0xCE, 0xAF, on, 0xD7]
+}
+
 /// `mode`, then the flash protocol's Baud Rate Set at `rate`'s code, for 1.8 V. Mode `CAH` is
 /// the monitor; `00H` is the flash protocol itself (Protocol C).
 pub fn entry(mode: u8, rate_code: u8) -> Vec<u8> {

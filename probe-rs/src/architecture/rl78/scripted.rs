@@ -215,8 +215,7 @@ impl Script {
             .exchange(&id, &[0xF2])
     }
 
-    /// The boot-mode reset, then `CAH` with Baud Rate Set at 1 Mbaud. The monitor's `00H`
-    /// comes back at the new rate and reads as `FFH`.
+    /// The boot-mode reset, then `CAH` with Baud Rate Set at 115200.
     fn g23_attach(&mut self) -> &mut Self {
         self.line(Line::Rate(115_200, false))
             .line(Line::Reset(true))
@@ -224,10 +223,26 @@ impl Script {
             .line(Line::Reset(false))
             .line(Line::Tool0Low(false))
             .line(Line::Flush)
-            .exchange(&g23::entry(0xCA, 3), &[0xFF])
-            .line(Line::Rate(1_000_000, false))
-            .line(Line::Flush)
+            .exchange(&g23::entry(0xCA, 0), &[0x00])
             .g23_unlock()
+    }
+
+    /// The link moved to 1 Mbaud (`fast`) or back to 115200 by the routine at the gate, with
+    /// CKC read at 00H: the CPU on the high-speed on-chip oscillator.
+    fn g23_rate(&mut self, fast: bool) -> &mut Self {
+        let (baud, code) = if fast { (1_000_000, 3) } else { (115_200, 0) };
+        self.g23_read(g23::CKC, &[0x00])
+            .g23_write(g23::GATE, &g23::rate_routine(0x00, code))
+            .exchange(&[0x94], &[0x94])
+            .line(Line::Rate(baud, false))
+            .exchange(&[0x90], &[0x05, 0x01])
+    }
+
+    /// The first large transfer of a halt: the clock checked, at 32 MHz, then 1 Mbaud.
+    fn g23_bulk(&mut self) -> &mut Self {
+        self.g23_read(g23::CKC, &[0x00])
+            .g23_read(g23::HOCODIV, &[0x00])
+            .g23_rate(true)
     }
 
     /// The register file's sources: the context block, the banks, SP, then CS/ES/PMC/MEM.
@@ -603,7 +618,10 @@ fn g23_continue_from_a_fresh_attach_starts_at_the_entry() {
             .g23_read(0xF_FB00, &saved(0xF_FB00, 19))
             .g23_write(0xF_FB00, &read20(0x00000, 64))
             .g23_write(g23::GATE, &[0xEC, 0x00, 0xFB, 0x0F])
+            .g23_bulk()
             .g23_read(0xF_FC10, &saved(0xF_FC10, 64))
+            // The rate change took the gate; it goes back before the call.
+            .g23_write(g23::GATE, &[0xEC, 0x00, 0xFB, 0x0F])
             .exchange(&[0x94], &[0x94])
             .exchange(&[0x90], &[0x05, 0x01])
             .g23_read(0xF_FC10, &vector)
@@ -616,6 +634,7 @@ fn g23_continue_from_a_fresh_attach_starts_at_the_entry() {
             .g23_write(0xF_FEFA, &[0x0F])
             .g23_write(0xF_FFFC, &[0x00])
             .g23_write(g23::STEP_ENABLE, &[0x00])
+            .g23_rate(false)
             .exchange(&[0x95], &[0x95]);
     });
     s.core().run().unwrap();
@@ -628,7 +647,7 @@ fn g23_a_monitor_left_halted_is_not_a_running_program() {
     // It answers the halt byte by restarting its handshake, but the unlock finds it unlocked
     // still: resuming it would run the boot ROM's idle loop, which takes no halt.
     let mut s = Script::default();
-    s.line(Line::Rate(1_000_000, false))
+    s.line(Line::Rate(115_200, false))
         .line(Line::Flush)
         .exchange(&[0x00], &[0x00])
         .exchange(&[0x90], &[0x05, 0x01])
@@ -639,13 +658,43 @@ fn g23_a_monitor_left_halted_is_not_a_running_program() {
     ocd.link_mut().assert_done();
 
     let mut s = Script::default();
-    s.line(Line::Rate(1_000_000, false))
+    s.line(Line::Rate(115_200, false))
         .line(Line::Flush)
         .exchange(&[0x00], &[0x00])
         .g23_unlock();
     let mut ocd = UartOcd::new(s.0, [0; 10]);
     ocd.set_monitor(Rl78Monitor::G23).unwrap();
     assert!(ocd.attach_running().unwrap().is_some());
+    ocd.link_mut().assert_done();
+}
+
+#[test]
+fn g23_a_stop_by_itself_is_unlocked_a_byte_at_a_time_until_ckc_is_read() {
+    // Nothing says what clock the program stopped on, and on the subsystem clock the monitor
+    // loses bytes sent together.
+    let mut s = Script::default();
+    s.g23_attach()
+        .g23_write(g23::STEP_ENABLE, &[0x00])
+        .exchange(&[0x95], &[0x95])
+        .unsolicited(&[0x00])
+        .exchange(&[0x90], &[0x05, 0x01])
+        .exchange(&[0x91], &[0xF1]);
+    for _ in 0..10 {
+        s.exchange(&[0x00], &[]);
+    }
+    s.exchange(&[0xFF], &[0xF2])
+        .exchange(&[0x92], &[])
+        .exchange(&[0xA4], &[])
+        .exchange(&[0xFF], &[])
+        .exchange(&[0x01], &[0x00])
+        .g23_read(g23::CONTEXT, &G23_ATTACHED);
+    let mut ocd = UartOcd::new(s.0, [0; 10]);
+    ocd.set_monitor(Rl78Monitor::G23).unwrap();
+    let sync = ocd.attach().unwrap();
+    assert!(ocd.execute(sync, false).unwrap().is_none());
+    assert!(ocd.poll_stopped().unwrap().is_some());
+    ocd.unlock().unwrap();
+    ocd.read_mem(g23::CONTEXT, &mut [0; 10]).unwrap();
     ocd.link_mut().assert_done();
 }
 
