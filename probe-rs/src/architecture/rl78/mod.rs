@@ -778,7 +778,8 @@ impl<'probe> Rl78<'probe> {
             .step_by(CODE_BLOCK as usize)
             .filter(|b| !self.state.code_cache.contains_key(b))
             .collect();
-        let per_run = STUB_BUF_SIZE / CODE_BLOCK as usize;
+        // The G23's ROM reads with no buffer of ours; a block's worth is plenty.
+        let per_run = if self.g23() { 0x800 } else { STUB_BUF_SIZE } / CODE_BLOCK as usize;
         let mut i = 0;
         while i < missing.len() {
             let start = missing[i];
@@ -806,6 +807,9 @@ impl<'probe> Rl78<'probe> {
     }
 
     fn read_far_uncached(&mut self, mut address: u32, data: &mut [u8]) -> Result<(), Error> {
+        if self.g23() {
+            return Ok(self.interface.read_far(address, data)?);
+        }
         let buf = self.stub_buf()?;
         for chunk in data.chunks_mut(STUB_BUF_SIZE) {
             let mut code = STUB_READ20;

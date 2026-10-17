@@ -146,6 +146,15 @@ pub trait Rl78OcdInterface: Send + fmt::Debug {
     /// waiting up to `timeout` for it to do so.
     fn call_stub(&mut self, timeout: Duration) -> Result<(), Rl78Error>;
 
+    /// Read anywhere in the 20-bit space, code flash included, without borrowing the target's
+    /// RAM. Only monitors with a service for it can; the core runs a routine otherwise.
+    fn read_far(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error> {
+        let _ = (address, data);
+        Err(Rl78Error::Unsupported(
+            "reading code flash without a routine",
+        ))
+    }
+
     /// Load B, C, H and L and return from the debug interrupt. With `single_step`, the target
     /// executes one instruction and re-enters the monitor, and the new sync is returned;
     /// otherwise it runs freely and `None` is returned. Either way the session is locked again.
@@ -321,9 +330,12 @@ struct G23Link {
     fast_ok: Option<bool>,
     /// The CPU runs from the subsystem clock: `None` until known, and paced as if it did.
     sub: Option<bool>,
-    /// What the session last put at the gate, and whether a rate change has overwritten it.
+    /// What the session last put at the gate, and whether a rate change or the ROM's service
+    /// has overwritten it.
     gate: Option<Vec<u8>>,
     gate_clobbered: bool,
+    /// The gate holds [`g23::SERVICE_GATE`].
+    gate_service: bool,
 }
 
 impl<L: fmt::Debug> fmt::Debug for UartOcd<L> {
@@ -897,6 +909,7 @@ impl<L: Rl78Uart> UartOcd<L> {
         if address == g23::GATE {
             self.g23.gate = Some(data.to_vec());
             self.g23.gate_clobbered = false;
+            self.g23.gate_service = false;
         }
         self.g23_write_raw(address, data)
     }
@@ -955,12 +968,41 @@ impl<L: Rl78Uart> UartOcd<L> {
         self.g23_read_raw(g23::CKC, &mut ckc)?;
         self.g23_write_raw(g23::GATE, &g23::rate_routine(ckc[0], g23_rate_code(baud)))?;
         self.g23.gate_clobbered = true;
+        self.g23.gate_service = false;
         // The echo goes out at the old rate, before the routine runs.
         self.g23_expect(&[g23::CALL], &[g23::CALL], "rate change")?;
         self.link.set_line(baud, false)?;
         self.g23_expect(&[g23::VERSION], &g23::VERSION_REPLY, "rate change")?;
         self.g23.fast = fast;
         tracing::debug!("rl78: link at {baud} baud");
+        Ok(())
+    }
+
+    /// Code flash and the rest of the 20-bit space through the ROM's command service: one
+    /// command a call, or as many as it takes between `SERVICE_STAY` and `SERVICE_LEAVE`.
+    fn g23_read_far(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error> {
+        self.g23_bulk(data.len())?;
+        if !self.g23.gate_service {
+            self.g23_write_raw(g23::GATE, &g23::SERVICE_GATE)?;
+            self.g23.gate_clobbered = true;
+            self.g23.gate_service = true;
+        }
+        self.g23_expect(&[g23::CALL], &[g23::CALL], "read")?;
+        let ack = [g23::SERVICE_ACK];
+        let stay = data.len() > 256;
+        if stay {
+            self.g23_expect(&[g23::SERVICE_STAY, 0, 0, 0, 0], &ack, "read")?;
+        }
+        let mut at = address;
+        for chunk in data.chunks_mut(256) {
+            let [lo, hi, es, _] = at.to_le_bytes();
+            let req = [g23::SERVICE_READ, lo, hi, es, chunk.len() as u8];
+            chunk.copy_from_slice(&self.g23_xfer(&req, chunk.len(), "read")?);
+            at += chunk.len() as u32;
+        }
+        if stay {
+            self.g23_expect(&[g23::SERVICE_LEAVE, 0, 0, 0, 0], &ack, "read")?;
+        }
         Ok(())
     }
 
@@ -1218,6 +1260,15 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
 
     fn security_id(&self) -> [u8; SECURITY_ID_LEN] {
         self.security_id
+    }
+
+    fn read_far(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error> {
+        if self.monitor != Rl78Monitor::G23 {
+            return Err(Rl78Error::Unsupported(
+                "reading code flash without a routine",
+            ));
+        }
+        self.g23_read_far(address, data)
     }
 
     fn rrm_read(&mut self, address: u32, data: &mut [u8]) -> Result<Rrm, Rl78Error> {

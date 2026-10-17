@@ -600,36 +600,19 @@ fn g23_step_arms_f0088h_and_unlocks_again() {
 
 #[test]
 fn g23_continue_from_a_fresh_attach_starts_at_the_entry() {
-    let ram: Vec<u8> = (0..0x400).map(|i| (i * 3) as u8).collect();
-    let saved = |a: u32, n: usize| {
-        let o = (a - 0xF_FB00) as usize;
-        ram[o..o + n].to_vec()
-    };
     let mut vector = vec![0xE6, 0x00, 0xFF, 0xFF];
     vector.resize(64, 0xFF);
     let mut started = G23_ATTACHED;
     started[6..10].copy_from_slice(&[0xE6, 0x00, 0x00, 0x06]);
     let mut s = Session::fresh_g23(|s| {
-        // The reset vector, read by the routine through the G23's gate: the gate is the
-        // monitor's own memory, so only the program's RAM is saved, and a 90H behind the 94H
-        // says the routine has returned.
-        s.g23_context(G23_ATTACHED, g23_banks(0x00), 0xFC00)
-            .g23_read(0xF_FEF8, &saved(0xF_FEF8, 8))
-            .g23_read(0xF_FB00, &saved(0xF_FB00, 19))
-            .g23_write(0xF_FB00, &read20(0x00000, 64))
-            .g23_write(g23::GATE, &[0xEC, 0x00, 0xFB, 0x0F])
-            .g23_bulk()
-            .g23_read(0xF_FC10, &saved(0xF_FC10, 64))
-            // The rate change took the gate; it goes back before the call.
-            .g23_write(g23::GATE, &[0xEC, 0x00, 0xFB, 0x0F])
+        // The reset vector through the ROM's command service: nothing staged, no RAM borrowed.
+        s.g23_bulk()
+            .g23_write(g23::GATE, &g23::SERVICE_GATE)
             .exchange(&[0x94], &[0x94])
-            .exchange(&[0x90], &[0x05, 0x01])
-            .g23_read(0xF_FC10, &vector)
-            // RAM back, then the registers a reset would set: PC and PSW in the block, ES in
-            // bank 0's C, CS. Then run, with the step enable clear.
-            .g23_write(0xF_FB00, &saved(0xF_FB00, 19))
-            .g23_write(0xF_FC10, &saved(0xF_FC10, 64))
-            .g23_write(0xF_FEF8, &saved(0xF_FEF8, 8))
+            .exchange(&[0x01, 0x00, 0x00, 0x00, 0x40], &vector)
+            .g23_context(G23_ATTACHED, g23_banks(0x00), 0xFC00)
+            // The registers a reset would set: PC and PSW in the block, ES in bank 0's C, CS.
+            // Then run at 115200, with the step enable clear.
             .g23_write(g23::CONTEXT, &started)
             .g23_write(0xF_FEFA, &[0x0F])
             .g23_write(0xF_FFFC, &[0x00])

@@ -64,6 +64,16 @@ pub const CSC_MSTOP: u8 = 1 << 7;
 pub const CSC_MIOEN: u8 = 1 << 1;
 pub const CSC_HIOSTOP: u8 = 1 << 0;
 
+/// `BR !!0EFA00H` at the gate: the ROM's command service, a loop that reads `cmd lo hi ES len`
+/// from the link and parks the monitor's return address in the gate's own bytes, so it borrows
+/// no RAM. [`SERVICE_READ`] sends `len` bytes from `ES:HL` (0 meaning 256); [`SERVICE_STAY`]
+/// keeps it for more commands and [`SERVICE_LEAVE`] returns, each answered [`SERVICE_ACK`].
+pub const SERVICE_GATE: [u8; 4] = [0xEC, 0x00, 0xFA, 0x0E];
+pub const SERVICE_LEAVE: u8 = 0x00;
+pub const SERVICE_READ: u8 = 0x01;
+pub const SERVICE_STAY: u8 = 0x06;
+pub const SERVICE_ACK: u8 = 0x55;
+
 /// The routine the vendor runs at the gate to move the link to `rate_code`: `MOV FFFAFH,#0`
 /// (the link's UART off), `MOV CKC,#ckc` (CKC written with its own value), `MOV FFFAFH,#40H`
 /// with the rate (on again at the new rate), `RET`.
