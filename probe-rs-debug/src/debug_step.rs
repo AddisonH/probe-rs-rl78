@@ -406,7 +406,8 @@ fn run_to_address(
                 program_counter = core.halt(Duration::from_millis(500))?.pc;
                 if matches!(
                     error,
-                    Error::Arm(ArmError::Timeout)
+                    Error::Timeout
+                        | Error::Arm(ArmError::Timeout)
                         | Error::Riscv(RiscvError::Timeout)
                         | Error::Xtensa(XtensaError::Timeout)
                 ) {
@@ -420,7 +421,7 @@ fn run_to_address(
                 } else {
                     // Something else is wrong.
                     Err(DebugError::Other(format!(
-                        "Unexpected error while waiting for the core to halt after stepping to {program_counter:#010X}. Forced a halt at {target_address:#010X}. {error:?}."
+                        "Unexpected error while waiting for the core to halt after stepping to {target_address:#010X}. Forced a halt at {program_counter:#010X}. {error:?}."
                     )))
                 }
             }
