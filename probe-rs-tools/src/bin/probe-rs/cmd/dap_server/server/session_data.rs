@@ -535,8 +535,19 @@ impl SessionData {
         cd_idx: usize,
         status: CoreStatus,
     ) -> Result<CoreStatus, DebuggerError> {
-        if status == self.core_data[cd_idx].last_known_status {
+        let last_known_status = self.core_data[cd_idx].last_known_status;
+        if status == last_known_status {
             return Ok(status);
+        }
+        // A core still halted has not stopped again: a step reports the breakpoint it ran to.
+        if last_known_status.is_halted()
+            && status.is_halted()
+            && !matches!(
+                status,
+                CoreStatus::Halted(HaltReason::Breakpoint(BreakpointCause::Semihosting(_)))
+            )
+        {
+            return Ok(last_known_status);
         }
         self.core_data[cd_idx].last_known_status = status;
 

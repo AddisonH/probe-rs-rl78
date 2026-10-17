@@ -1740,6 +1740,50 @@ mod test {
         execute_test(protocol_adapter, true).await.unwrap();
     }
 
+    #[tokio::test]
+    async fn launch_halted_reports_one_stop() {
+        let mut protocol_adapter = initialized_protocol_adapter();
+
+        protocol_adapter
+            .add_request("launch")
+            .with_arguments(SessionConfig {
+                flashing_config: FlashingConfig {
+                    halt_after_reset: true,
+                    ..Default::default()
+                },
+                ..valid_session_config()
+            })
+            .and_successful_response();
+        protocol_adapter.expect_event("initialized", None::<u32>);
+
+        protocol_adapter
+            .add_request("configurationDone")
+            .and_successful_response();
+        protocol_adapter.expect_event(
+            "stopped",
+            Some(json!({
+                "allThreadsStopped": false,
+                "description": "Stopped for an unknown reason at 0x00000000 (/rust/deps/compiler_builtins-0.1.109/src/macros.rs:499).",
+                "reason": "unrecognized",
+                "threadId": 0,
+            })),
+        );
+
+        protocol_adapter
+            .add_request("threads")
+            .and_successful_response()
+            .with_body(ThreadsResponseBody {
+                threads: vec![Thread {
+                    id: 0,
+                    name: format!("0-{TEST_CHIP_NAME}"),
+                }],
+            });
+
+        disconnect_protocol_adapter(&mut protocol_adapter);
+
+        execute_test(protocol_adapter, true).await.unwrap();
+    }
+
     /// A request that fails must receive an error response, and must not end
     /// the session.
     #[tokio::test]

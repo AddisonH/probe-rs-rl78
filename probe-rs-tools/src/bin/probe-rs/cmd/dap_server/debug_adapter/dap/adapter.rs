@@ -750,6 +750,13 @@ impl DebugAdapter {
                     hit_breakpoint_ids: None,
                 });
                 self.send_event("stopped", event_body)?;
+                if let Some(core_data) = session_data
+                    .core_data
+                    .iter_mut()
+                    .find(|c| c.core_index == core_index)
+                {
+                    core_data.last_known_status = current_core_status;
+                }
             } else {
                 tracing::debug!(
                     "Core is halted, but not due to a breakpoint and halt_after_reset is not set. Continuing."
