@@ -633,6 +633,25 @@ impl<L: Rl78Uart> UartOcd<L> {
         })
     }
 
+    /// A program the debugger started keeps the monitor's link at [`G23_BAUD`], and halts on
+    /// a `00H` there.
+    fn g23_attach_running(&mut self) -> Result<Option<Sync>, Rl78Error> {
+        self.link.set_line(G23_BAUD, false)?;
+        self.link.flush_input()?;
+        self.link.write(&[0x00])?;
+        let mut r = [0];
+        if self.link.read(&mut r, T_ATTACH_RUNNING)? == 0 || r != [0x00] {
+            tracing::debug!("rl78: no program running with the monitor armed");
+            return Ok(None);
+        }
+        self.state = protocol::State {
+            phase: Phase::Ocd,
+            ..protocol::State::new()
+        };
+        self.g23_unlock()?;
+        Ok(Some(Sync::default()))
+    }
+
     fn g23_unlock(&mut self) -> Result<(), Rl78Error> {
         self.g23_expect(&[g23::VERSION], &g23::VERSION_REPLY, "version")?;
         match self.g23_xfer(&[g23::UNLOCK], 1, "unlock")?[0] {
@@ -756,7 +775,7 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
 
     fn attach_running(&mut self) -> Result<Option<Sync>, Rl78Error> {
         if self.monitor == Rl78Monitor::G23 {
-            return Ok(None);
+            return self.g23_attach_running();
         }
         // An armed monitor answers a 00H within a few milliseconds. Speak to it as to a
         // target the monitor has let run; if nothing answers, the attach under reset starts the

@@ -324,6 +324,26 @@ impl<'probe> Rl78<'probe> {
                 .is_some_and(|ctx| ctx.is_dirty(PC_ID))
     }
 
+    /// Start the program from the attach state as a reset would, by pointing the monitor's
+    /// return at the reset vector's target with PSW, CS and ES at their reset values. The G23
+    /// monitor answers no halt after a normal boot, so its programs are started this way.
+    fn start_at_entry(&mut self) -> Result<u32, Error> {
+        let mut vector = [0; 2];
+        self.read_bytes(0, &mut vector)?;
+        let entry = u32::from(u16::from_le_bytes(vector));
+        if entry == 0xFFFF {
+            return Err(Error::Other("code flash has no reset vector".into()));
+        }
+        let ctx = self.load_context()?;
+        ctx.set(PC_ID, entry);
+        ctx.set(PSW_ID, 0x06);
+        ctx.set(CS_ID, 0x00);
+        ctx.set(ES_ID, 0x0F);
+        self.state.at_boot_rom = false;
+        tracing::info!("rl78: starting the program at its entry {entry:05X}H");
+        Ok(entry)
+    }
+
     fn require_halted(&self, what: &'static str) -> Result<(), Error> {
         if self.state.running {
             return Err(Rl78Error::NotHalted(what).into());
@@ -1099,7 +1119,9 @@ impl CoreInterface for Rl78<'_> {
             return Ok(());
         }
         self.state.resume_at_detach = false;
-        if self.in_boot_rom() {
+        if self.in_boot_rom() && self.g23() {
+            self.start_at_entry()?;
+        } else if self.in_boot_rom() {
             // Resuming here would only run the boot ROM's idle loop, with the watchdog running
             // whatever the option byte says. Boot the program instead: a normal reset, after
             // which the debug stub in flash arms the monitor again.
@@ -1128,6 +1150,10 @@ impl CoreInterface for Rl78<'_> {
     }
 
     fn reset(&mut self) -> Result<(), Error> {
+        if self.g23() {
+            self.reset_and_halt(Duration::ZERO)?;
+            return self.run();
+        }
         // A normal boot into the program. Resuming after an attach would not do: that runs from
         // the ROM's idle loop, and with the watchdog the boot ROM left running. Breakpoints go
         // into flash first, so that the program meets them; the user's RAM goes back too, for
@@ -1159,7 +1185,10 @@ impl CoreInterface for Rl78<'_> {
         self.require_halted("step")?;
         self.disarm()?;
         self.state.resume_at_detach = false;
-        if self.in_boot_rom() {
+        if self.in_boot_rom() && self.g23() {
+            self.start_at_entry()?;
+            self.state.halt_reason = Some(HaltReason::Step);
+        } else if self.in_boot_rom() {
             self.boot_to_entry()?;
         } else if self.state.breakpoints.is_idle() {
             self.step_raw()?;
@@ -1213,17 +1242,11 @@ impl CoreInterface for Rl78<'_> {
     }
 
     fn available_breakpoint_units(&mut self) -> Result<u32, Error> {
-        if self.g23() {
-            return Ok(0);
-        }
         // FFH traps, put in place when the target next runs or steps.
         Ok(breakpoints::UNITS as u32)
     }
 
     fn hw_breakpoints(&mut self) -> Result<Vec<Option<u64>>, Error> {
-        if self.g23() {
-            return Ok(Vec::new());
-        }
         Ok(self.breakpoint_units())
     }
 

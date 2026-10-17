@@ -104,7 +104,8 @@ impl Rl78<'_> {
     /// Start a run that stops at `target` by comparators. False, having done nothing, when the
     /// code on the way there does not allow it.
     pub(super) fn run_to_by_comparators(&mut self, target: u32) -> Result<bool, Error> {
-        if target >= REACH || self.pc()? as u32 == target {
+        // The G23's comparators are 20-bit, elsewhere, and their timing is not measured.
+        if self.g23() || target >= REACH || self.pc()? as u32 == target {
             return Ok(false);
         }
         let Some(leg) = self.next_leg(target, &[])? else {
