@@ -633,8 +633,7 @@ mod builtin {
         }
     }
 
-    /// Reads Motorola S-records (`.srec`, `.mot`, `.s19`, `.s28`, `.s37`), the default output of
-    /// Renesas's CC-RL and e2 studio, and adds their data records as loadable data blocks.
+    /// Reads Motorola S-records and adds their data records as loadable data blocks.
     pub struct SrecLoader;
 
     impl ImageLoader for SrecLoader {
@@ -646,67 +645,18 @@ mod builtin {
         ) -> Result<(), FileDownloadError> {
             let mut text = String::new();
             file.read_to_string(&mut text)?;
-            for (number, line) in text.lines().enumerate() {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-                let record = srec_record(line).map_err(|message| {
-                    FileDownloadError::ImageFormatSpecific {
-                        format: "srec".to_string(),
-                        source: format!("line {}: {message}", number + 1).into(),
-                    }
-                })?;
-                if let Some((address, data)) = record {
-                    flash_loader.add_data(address, &data)?;
-                }
+            for record in srec::read_records(&text) {
+                let (address, data) =
+                    match record.map_err(|e| super::into_format_error("srec", e))? {
+                        srec::Record::S1(d) => (u64::from(d.address.0), d.data),
+                        srec::Record::S2(d) => (u64::from(d.address.0), d.data),
+                        srec::Record::S3(d) => (u64::from(d.address.0), d.data),
+                        _ => continue,
+                    };
+                flash_loader.add_data(address, &data)?;
             }
             Ok(())
         }
-    }
-
-    /// One S-record: the address and the data of a data record (`S1`, `S2`, `S3`), `None` for
-    /// the others (header, count, start address).
-    pub(super) fn srec_record(line: &str) -> Result<Option<(u64, Vec<u8>)>, String> {
-        let Some(rest) = line.strip_prefix('S') else {
-            return Err("not an S-record".to_string());
-        };
-        let mut chars = rest.chars();
-        let kind = chars.next().ok_or("no record type")?;
-        let hex = chars.as_str();
-        if hex.len() % 2 != 0 || !hex.is_ascii() {
-            return Err("not a whole number of hex bytes".to_string());
-        }
-        let bytes = (0..hex.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16))
-            .collect::<Result<Vec<u8>, _>>()
-            .map_err(|error| error.to_string())?;
-        let Some((&count, counted)) = bytes.split_first() else {
-            return Err("no byte count".to_string());
-        };
-        if counted.len() != usize::from(count) {
-            return Err(format!(
-                "{} bytes after the count, which says {count}",
-                counted.len()
-            ));
-        }
-        // The count, address and data bytes and the checksum add up to FFH.
-        if bytes.iter().fold(0u8, |sum, b| sum.wrapping_add(*b)) != 0xFF {
-            return Err("bad checksum".to_string());
-        }
-        let address_len = match kind {
-            '0' | '1' | '5' | '9' => 2,
-            '2' | '6' | '8' => 3,
-            '3' | '7' => 4,
-            other => return Err(format!("unknown record type S{other}")),
-        };
-        let fields = &counted[..counted.len() - 1];
-        let Some((address, data)) = fields.split_at_checked(address_len) else {
-            return Err("shorter than its address".to_string());
-        };
-        let address = address.iter().fold(0u64, |a, b| a << 8 | u64::from(*b));
-        Ok(matches!(kind, '1' | '2' | '3').then(|| (address, data.to_vec())))
     }
 
     /// Prepares the data sections that have to be loaded into flash from an UF2 file.
@@ -1446,45 +1396,5 @@ impl FlashLoader {
             .data
             .iter()
             .map(|(address, data)| (*address, data.as_slice()))
-    }
-}
-
-#[cfg(all(test, feature = "builtin-formats"))]
-mod srec_tests {
-    use super::builtin::srec_record;
-
-    #[test]
-    fn data_records_of_each_address_width() {
-        // llvm-objcopy -O srec, an RL78 image: the reset vector at 00000H.
-        assert_eq!(
-            srec_record("S1050000D80022"),
-            Ok(Some((0x0000, vec![0xD8, 0x00])))
-        );
-        assert_eq!(
-            srec_record("S2060F0800AABB7D"),
-            Ok(Some((0x0F_0800, vec![0xAA, 0xBB])))
-        );
-        assert_eq!(
-            srec_record("S307080000001234AA"),
-            Ok(Some((0x0800_0000, vec![0x12, 0x34])))
-        );
-    }
-
-    #[test]
-    fn other_records_carry_no_data() {
-        assert_eq!(
-            srec_record("S01100006731352D64656275672E7372656312"),
-            Ok(None)
-        );
-        assert_eq!(srec_record("S90300D824"), Ok(None));
-        assert_eq!(srec_record("S5030001FB"), Ok(None));
-    }
-
-    #[test]
-    fn damage_is_reported() {
-        assert_eq!(srec_record("S1050000D80023").unwrap_err(), "bad checksum");
-        assert!(srec_record("S1060000D80022").is_err(), "count");
-        assert!(srec_record(":020000040000FA").is_err(), "Intel HEX");
-        assert!(srec_record("S4030000FC").is_err(), "reserved type");
     }
 }

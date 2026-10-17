@@ -166,7 +166,7 @@ pub enum FormatKind {
 
     Uf2,
 
-    /// Motorola S-records, the default output of Renesas's CC-RL and e2 studio.
+    /// Motorola S-records.
     #[cfg_attr(feature = "clap", value(aliases(["mot", "s19", "s28", "s37"])))]
     Srec,
 }
