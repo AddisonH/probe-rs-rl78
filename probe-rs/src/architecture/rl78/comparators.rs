@@ -12,13 +12,16 @@
 //!   is stopped an instruction short of the target, or of a call, and stepped the rest of the way.
 //!   That absorbs a stop that comes early (wait states, an interrupt) and one that an instruction
 //!   holding interrupts pending puts off.
+//! - **Through a branch.** A conditional branch or skip on the way: straight to it, one step to let
+//!   the data choose, and on from there. Only for a target in the same function a few branches
+//!   away; a branch met twice is a loop.
 //! - **Out first.** The target cannot be reached before the current function returns:
-//!   comparators on its `RET`s, then straight there from the return address.
+//!   comparators on its `RET`s, then on from the return address.
 //!
-//! Anything else (a conditional branch on the way, an indirect jump or call, more `RET`s than
-//! comparators, the target inside a callee or an interrupt handler) gets an `FFH` trap as before.
+//! Anything else (an indirect jump or call, more `RET`s than comparators, the target inside a
+//! callee or an interrupt handler) gets an `FFH` trap as before.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 
 use super::{
     CODE_BLOCK, Rl78, SPH_ID, SPL_ID,
@@ -43,6 +46,8 @@ const WALK_LIMIT: usize = 4096;
 /// Legs in one run, and stops at a `RET` that returned somewhere else.
 const LEG_LIMIT: usize = 16;
 const REARM_LIMIT: usize = 64;
+/// Conditional branches on the way to a target, at most: each costs a leg and a step.
+const BRANCH_LIMIT: usize = 3;
 
 /// A run to one breakpoint that is not in memory, by comparators.
 #[derive(Debug)]
@@ -51,6 +56,8 @@ pub(super) struct Plan {
     leg: Leg,
     legs: usize,
     rearms: usize,
+    /// The branches stepped so far.
+    stepped: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +67,8 @@ enum Leg {
     Aim { arm: Option<u32>, path: Vec<u32> },
     /// Run until a function returns: comparators on its `RET`s.
     Return { rets: Vec<u32>, done: Returned },
+    /// One step of the conditional branch or skip at `at`.
+    Step { at: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +92,14 @@ enum End {
     Other,
 }
 
+/// How far legs that do not depend on the data take the target towards a breakpoint.
+enum Route {
+    There(Leg),
+    /// To a conditional branch or skip: the first leg towards it.
+    Branch(Leg),
+    No,
+}
+
 impl Rl78<'_> {
     /// Start a run that stops at `target` by comparators. False, having done nothing, when the
     /// code on the way there does not allow it.
@@ -90,7 +107,7 @@ impl Rl78<'_> {
         if target >= REACH || self.pc()? as u32 == target {
             return Ok(false);
         }
-        let Some(leg) = self.next_leg(target)? else {
+        let Some(leg) = self.next_leg(target, &[])? else {
             tracing::debug!("rl78: no way to {target:05X}H by comparators: a trap instead");
             return Ok(false);
         };
@@ -101,6 +118,7 @@ impl Rl78<'_> {
             leg: leg.clone(),
             legs: 1,
             rearms: 0,
+            stepped: Vec::new(),
         });
         self.start_leg(leg)?;
         Ok(true)
@@ -144,6 +162,7 @@ impl Rl78<'_> {
                 self.state.plan = Some(plan);
                 self.start_leg(Leg::Return { rets, done })
             }
+            Leg::Step { .. } => unreachable!("a step does not run"),
         }
     }
 
@@ -166,6 +185,7 @@ impl Rl78<'_> {
     fn start_leg(&mut self, leg: Leg) -> Result<(), Error> {
         let arms = match &leg {
             Leg::Aim { arm: None, path } => return self.step_along(path),
+            &Leg::Step { at } => return self.step_branch(at),
             Leg::Aim { arm: Some(at), .. } => [*at, OFF.into()],
             Leg::Return { rets, .. } => [rets[0], rets.get(1).copied().unwrap_or(OFF.into())],
         };
@@ -206,6 +226,19 @@ impl Rl78<'_> {
         }
     }
 
+    fn step_branch(&mut self, at: u32) -> Result<(), Error> {
+        if self.state.breakpoints.is_planted(at) {
+            self.state.plan = None;
+            self.state.halt_reason = Some(HaltReason::Breakpoint(BreakpointCause::Hardware));
+            return Ok(());
+        }
+        if let Some(plan) = &mut self.state.plan {
+            plan.stepped.push(at);
+        }
+        self.step_raw()?;
+        self.leg_done()
+    }
+
     /// A leg reached its end: the target, or the next leg.
     fn leg_done(&mut self) -> Result<(), Error> {
         let Some(mut plan) = self.state.plan.take() else {
@@ -219,7 +252,7 @@ impl Rl78<'_> {
         let next = if plan.legs > LEG_LIMIT {
             None
         } else {
-            self.next_leg(plan.target)?
+            self.next_leg(plan.target, &plan.stepped)?
         };
         match next {
             Some(leg) => {
@@ -235,7 +268,8 @@ impl Rl78<'_> {
     }
 
     /// The first leg towards `target` from the PC, if the code allows the whole way there.
-    fn next_leg(&mut self, target: u32) -> Result<Option<Leg>, Error> {
+    /// `stepped` are the branches this run has stepped already.
+    fn next_leg(&mut self, target: u32, stepped: &[u32]) -> Result<Option<Leg>, Error> {
         let pc = self.pc()? as u32;
         let sp = self.user_sp()?;
         let Some(handlers) = self.interrupt_code()? else {
@@ -246,10 +280,10 @@ impl Rl78<'_> {
             tracing::debug!("rl78: {target:05X}H is in an interrupt handler");
             return Ok(None);
         }
-        if let Some(leg) = self.straight_there(pc, sp, target)? {
+        let route = self.route(pc, sp, target, stepped)?;
+        if let Route::There(leg) = route {
             return Ok(Some(leg));
         }
-        // Out first: the target is nowhere the function can go before it returns.
         let mut seen = BTreeSet::new();
         let mut rets = Vec::new();
         let mut calls = Vec::new();
@@ -258,9 +292,15 @@ impl Rl78<'_> {
             return Ok(None);
         }
         if seen.contains(&target) {
-            tracing::debug!("rl78: {target:05X}H is behind a branch");
+            if let Route::Branch(leg) = route
+                && self.branches_to(pc, target)? <= BRANCH_LIMIT
+            {
+                return Ok(Some(leg));
+            }
+            tracing::debug!("rl78: {target:05X}H is behind a loop or too many branches");
             return Ok(None);
         }
+        // Out first: the target is nowhere the function can go before it returns.
         let Some(callees) = self.closure(&calls)? else {
             tracing::debug!("rl78: what the function at {pc:05X}H calls is unknown");
             return Ok(None);
@@ -278,25 +318,41 @@ impl Rl78<'_> {
         }))
     }
 
-    /// The first leg of a way to `target` that is the same whatever the data, calls included.
-    fn straight_there(&mut self, pc: u32, sp: u16, target: u32) -> Result<Option<Leg>, Error> {
+    /// The first leg of the way from `pc` that does not depend on the data, calls included, as
+    /// far as `target` or a conditional branch.
+    fn route(&mut self, pc: u32, sp: u16, target: u32, stepped: &[u32]) -> Result<Route, Error> {
         let mut first = None;
         let mut at = pc;
         for _ in 0..LEG_LIMIT {
             let straight = self.straight(at, target)?;
             let leg = match straight.end {
                 End::Target => {
-                    return Ok(Some(first.unwrap_or_else(|| aim(&straight.path))));
+                    return Ok(Route::There(first.unwrap_or_else(|| aim(&straight.path))));
                 }
-                End::Other => return Ok(None),
+                End::Other => {
+                    let Some(&(end, insn)) = straight.path.last() else {
+                        return Ok(Route::No);
+                    };
+                    if !matches!(insn.flow, Flow::Branch(_) | Flow::Skip) {
+                        return Ok(Route::No);
+                    }
+                    let leg = if straight.path.len() > 1 {
+                        aim(&straight.path)
+                    } else if stepped.contains(&end) {
+                        return Ok(Route::No);
+                    } else {
+                        Leg::Step { at: end }
+                    };
+                    return Ok(Route::Branch(first.unwrap_or(leg)));
+                }
                 End::Call { callee, to } => {
                     let Some(code) = self.closure(&[callee])? else {
-                        return Ok(None);
+                        return Ok(Route::No);
                     };
                     let mut rets = Vec::new();
                     self.explore(callee, &mut BTreeSet::new(), &mut rets, &mut Vec::new())?;
                     if code.contains(&target) || rets.is_empty() || rets.len() > 2 {
-                        return Ok(None);
+                        return Ok(Route::No);
                     }
                     if straight.path.len() == 1 {
                         // At the call: the callee's return is the leg.
@@ -315,7 +371,54 @@ impl Rl78<'_> {
             };
             at = to;
         }
-        Ok(None)
+        Ok(Route::No)
+    }
+
+    /// The fewest conditional branches and skips on a way from `from` to `target` that does not
+    /// leave the function, calls stepped over.
+    fn branches_to(&mut self, from: u32, target: u32) -> Result<usize, Error> {
+        let mut best = std::collections::BTreeMap::from([(from, 0)]);
+        let mut todo = VecDeque::from([(from, 0)]);
+        while let Some((at, n)) = todo.pop_front() {
+            if at == target {
+                return Ok(n);
+            }
+            if best[&at] < n || best.len() > WALK_LIMIT {
+                continue;
+            }
+            let Some(insn) = self.insn(at)? else {
+                continue;
+            };
+            let next = at + insn.len;
+            let mut go = |to: u32, cost: usize, todo: &mut VecDeque<(u32, usize)>| {
+                if best.get(&to).is_none_or(|&b| n + cost < b) {
+                    best.insert(to, n + cost);
+                    if cost == 0 {
+                        todo.push_front((to, n));
+                    } else {
+                        todo.push_back((to, n + cost));
+                    }
+                }
+            };
+            match insn.flow {
+                Flow::Next | Flow::Wait | Flow::Call(_) | Flow::CallTable(_) => {
+                    go(next, 0, &mut todo)
+                }
+                Flow::Jump(to) => go(to, 0, &mut todo),
+                Flow::Branch(to) => {
+                    go(to, 1, &mut todo);
+                    go(next, 1, &mut todo);
+                }
+                Flow::Skip => {
+                    if let Some(skipped) = self.insn(next)? {
+                        go(next, 1, &mut todo);
+                        go(next + skipped.len, 1, &mut todo);
+                    }
+                }
+                Flow::Return | Flow::CallIndirect | Flow::JumpIndirect => {}
+            }
+        }
+        Ok(usize::MAX)
     }
 
     /// Walk from `at` while the next instruction does not depend on the data.

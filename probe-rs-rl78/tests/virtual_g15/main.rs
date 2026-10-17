@@ -1264,14 +1264,63 @@ fn comparators_step_out_of_a_recursive_function() {
     assert_eq!(g15.lock().flash().blocks_erased, erased, "no trap in flash");
 }
 
-/// A target only a conditional branch leads to gets a trap, as before.
+/// A target inside a callee gets a trap, as before.
 #[test]
-fn comparators_leave_branches_to_traps() {
+fn comparators_leave_targets_in_callees_to_traps() {
     let g15 = VirtualG15::new();
     let mut session = session(&g15);
     let mut core = at_the_code(&g15, &mut session, &RECURSE);
     let erased = g15.lock().flash().blocks_erased;
     run_to(&mut core, 0xEC);
     assert_eq!(g15.lock().comparator_stops, 0);
+    assert_eq!(g15.lock().flash().blocks_erased, erased + 1, "a trap");
+}
+
+/// A conditional branch on the way: straight to it, a step, and on along whichever way the data
+/// chose. The counter's low bit sends alternate runs down each side.
+#[test]
+fn comparators_step_through_a_branch() {
+    // dc: incw !0xffe40
+    // df: nop x6
+    // e5: bt 0xffe40.0, $0xec
+    // e9: nop
+    // ea: br $0xed
+    // ec: nop
+    // ed: nop
+    // ee: br $0xdc
+    #[rustfmt::skip]
+    const BRANCH: [u8; 20] = [
+        0xA2, 0x40, 0xFE, 0, 0, 0, 0, 0, 0, 0x31, 0x02, 0x40, 0x03, 0x00, 0xEF, 0x01, 0x00, 0x00,
+        0xEF, 0xEC,
+    ];
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    let mut core = at_the_code(&g15, &mut session, &BRANCH);
+    let erased = g15.lock().flash().blocks_erased;
+    for _ in 0..2 {
+        run_to(&mut core, 0xED);
+    }
+    assert_eq!(
+        g15.lock().comparator_stops,
+        2,
+        "one aim at the branch per run"
+    );
+    assert_eq!(g15.lock().flash().blocks_erased, erased, "no trap in flash");
+}
+
+/// A branch met twice in one run is a loop: a trap instead of a step per pass.
+#[test]
+fn comparators_leave_loops_to_traps() {
+    // dc: mov b, #5
+    // de: dec b
+    // df: bnz $0xde
+    // e1: nop
+    // e2: br $0xdc
+    const LOOP: [u8; 8] = [0x53, 0x05, 0x93, 0xDF, 0xFD, 0x00, 0xEF, 0xF8];
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    let mut core = at_the_code(&g15, &mut session, &LOOP);
+    let erased = g15.lock().flash().blocks_erased;
+    run_to(&mut core, 0xE1);
     assert_eq!(g15.lock().flash().blocks_erased, erased + 1, "a trap");
 }
