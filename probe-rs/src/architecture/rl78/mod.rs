@@ -213,6 +213,9 @@ pub struct Rl78CoreState {
     /// Whether the program answers pseudo-RRM: `None` until it is first tried while running,
     /// and again after the program is reflashed. It outlives resets.
     rrm: Option<bool>,
+    /// The G23's flash boots through the debug stub, so a plain reset leaves the monitor armed.
+    /// Read with [`rrm`](Self::rrm), and kept as long.
+    boots_armed: Option<bool>,
 }
 
 /// The bytes of the user's RAM that the debugger saved before first overwriting them this halt:
@@ -289,6 +292,7 @@ impl Rl78CoreState {
             resume_at_detach: !at_boot_rom,
             breakpoints: std::mem::take(&mut self.breakpoints),
             rrm: self.rrm,
+            boots_armed: self.boots_armed,
             ..Self::default()
         };
     }
@@ -904,6 +908,26 @@ impl Rl78<'_> {
     /// The program's code changed: whether it answers pseudo-RRM may have too.
     pub(super) fn forget_rrm(&mut self) {
         self.state.rrm = None;
+        self.state.boots_armed = None;
+    }
+
+    /// What the G23's flash enables, read while halted, before the program runs: pseudo-RRM,
+    /// since a byte its flash does not hook ([`flash::G23_RRM_HOOK`]) halts the program rather
+    /// than going unanswered, and the debug stub.
+    fn check_flash_g23(&mut self) -> Result<(), Error> {
+        if !self.g23() || self.state.rrm.is_some() {
+            return Ok(());
+        }
+        let mut head = [0; flash::G23_RRM_HOOK_AT + 4];
+        self.read_bytes(0, &mut head)?;
+        let hook = &head[flash::G23_RRM_HOOK_AT..];
+        self.state.rrm = Some(head[flash::G23_RRM_ENABLE_AT] == 0x01 && hook != [0xFF; 4]);
+        let stub = flash::G23_STUB_AT;
+        self.state.boots_armed = Some(
+            usize::from(u16::from_le_bytes([head[0], head[1]])) == stub
+                && head[stub..stub + flash::DEBUG_STUB.len()] == flash::DEBUG_STUB,
+        );
+        Ok(())
     }
 
     /// Check that `len` bytes at `start` can be reached while the program runs.
@@ -911,9 +935,17 @@ impl Rl78<'_> {
         let start = valid_32bit_address(start)?;
         let end = start as u64 + len as u64;
         let in_window = |lo: u32, hi: u32| start >= lo && end <= u64::from(hi);
-        if self.state.rrm == Some(false)
-            || !(in_window(0xF_0000, 0xF_0800) || in_window(0xF_DF00, 0x10_0000))
-        {
+        // The G23's handler reaches all of the F-segment; reserved space and data flash are
+        // left out.
+        let high = if self.g23() { 0xF_3000 } else { 0xF_DF00 };
+        // The G15's path is tried, and stays silent when the program leaves it off; the G23's
+        // is known before the program runs (`check_rrm_g23`).
+        let off = if self.g23() {
+            self.state.rrm != Some(true)
+        } else {
+            self.state.rrm == Some(false)
+        };
+        if off || !(in_window(0xF_0000, 0xF_0800) || in_window(high, 0x10_0000)) {
             return Err(Rl78Error::NotWhileRunning(what).into());
         }
         Ok(start)
@@ -1165,6 +1197,7 @@ impl CoreInterface for Rl78<'_> {
             return Ok(());
         }
         self.sync_breakpoints(&[])?;
+        self.check_flash_g23()?;
         let sync = self.store_context()?;
         self.interface.execute(sync, false)?;
         self.state.running = true;
@@ -1174,8 +1207,13 @@ impl CoreInterface for Rl78<'_> {
 
     fn reset(&mut self) -> Result<(), Error> {
         if self.g23() {
-            self.reset_and_halt(Duration::ZERO)?;
-            return self.run();
+            if !self.state.running {
+                self.check_flash_g23()?;
+            }
+            if self.state.boots_armed != Some(true) {
+                self.reset_and_halt(Duration::ZERO)?;
+                return self.run();
+            }
         }
         // A normal boot into the program. Resuming after an attach would not do: that runs from
         // the ROM's idle loop, and with the watchdog the boot ROM left running. Breakpoints go
@@ -1191,6 +1229,7 @@ impl CoreInterface for Rl78<'_> {
             running: true,
             breakpoints: std::mem::take(&mut self.state.breakpoints),
             rrm: self.state.rrm,
+            boots_armed: self.state.boots_armed,
             ..Rl78CoreState::default()
         };
         Ok(())

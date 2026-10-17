@@ -13,7 +13,7 @@ use probe_rs_target::Rl78Monitor;
 
 use super::{
     Rl78, Rl78CoreState,
-    communication_interface::{Rl78Error, Rl78OcdInterface, Rl78Uart, UartOcd},
+    communication_interface::{Rl78Error, Rl78OcdInterface, Rl78Uart, Rrm, UartOcd},
     g23,
     registers::*,
     sequences::{DefaultRl78Sequence, G23Rl78Sequence},
@@ -637,6 +637,9 @@ fn g23_continue_from_a_fresh_attach_starts_at_the_entry() {
             .g23_rate(false)
             .exchange(&[0x95], &[0x95]);
     });
+    // What the flash enables, read before the first run, is not this test's business.
+    s.state.rrm = Some(false);
+    s.state.boots_armed = Some(false);
     s.core().run().unwrap();
     assert!(!s.core().core_halted().unwrap());
     s.assert_done();
@@ -695,6 +698,70 @@ fn g23_a_stop_by_itself_is_unlocked_a_byte_at_a_time_until_ckc_is_read() {
     assert!(ocd.poll_stopped().unwrap().is_some());
     ocd.unlock().unwrap();
     ocd.read_mem(g23::CONTEXT, &mut [0; 10]).unwrap();
+    ocd.link_mut().assert_done();
+}
+
+/// A G23 attached and running, for pseudo-RRM.
+fn g23_running(script: impl FnOnce(&mut Script)) -> UartOcd<ScriptedUart> {
+    let mut s = Script::default();
+    s.g23_attach()
+        .g23_write(g23::STEP_ENABLE, &[0x00])
+        .exchange(&[0x95], &[0x95]);
+    script(&mut s);
+    let mut ocd = UartOcd::new(s.0, [0; 10]);
+    ocd.set_monitor(Rl78Monitor::G23).unwrap();
+    let sync = ocd.attach().unwrap();
+    ocd.execute(sync, false).unwrap();
+    ocd
+}
+
+#[test]
+fn g23_rrm_reads_aligned_words_and_writes_with_an_echo() {
+    let mut ocd = g23_running(|s| {
+        // Three bytes from FBF0FH: the words at FBF0EH and FBF10H. Each nibble answers the
+        // address accumulator's low byte; only the first one's low nibble is predictable.
+        s.exchange(&[0xAB], &[0x7B])
+            .exchange(&[0xAF], &[0xBF])
+            .exchange(&[0xA0], &[0xF0])
+            .exchange(&[0xAE], &[0x0E])
+            .exchange(&[0xD2], &[0x11, 0x22])
+            .exchange(&[0xAB], &[0xEB])
+            .exchange(&[0xAF], &[0xBF])
+            .exchange(&[0xA1], &[0xF1])
+            .exchange(&[0xA0], &[0x10])
+            .exchange(&[0xD2], &[0x33, 0x44])
+            // 1234H to FBF10H: the data nibbles high first, then DAH.
+            .exchange(&[0xAB], &[0x0B])
+            .exchange(&[0xAF], &[0xBF])
+            .exchange(&[0xA1], &[0xF1])
+            .exchange(&[0xA0], &[0x10])
+            .exchange(&[0xB1], &[0x41])
+            .exchange(&[0xB2], &[0x12])
+            .exchange(&[0xB3], &[0x23])
+            .exchange(&[0xB4], &[0x34])
+            .exchange(&[0xDA], &[0xDA]);
+    });
+    let mut data = [0; 3];
+    assert_eq!(ocd.rrm_read(0xF_BF0F, &mut data).unwrap(), Rrm::Done);
+    assert_eq!(data, [0x22, 0x33, 0x44]);
+    assert_eq!(ocd.rrm_write(0xF_BF10, &[0x34, 0x12]).unwrap(), Rrm::Done);
+    ocd.link_mut().assert_done();
+}
+
+#[test]
+fn g23_rrm_takes_a_silence_answered_by_the_monitor_for_a_stop() {
+    let mut ocd = g23_running(|s| {
+        // The program stopped before the second nibble: the locked monitor ignores it, and
+        // answers 90H.
+        s.exchange(&[0xAB], &[0x7B])
+            .exchange(&[0xAF], &[])
+            .exchange(&[0x90], &[0x05, 0x01]);
+    });
+    let mut data = [0; 2];
+    assert!(matches!(
+        ocd.rrm_read(0xF_BF0E, &mut data).unwrap(),
+        Rrm::Stopped(_)
+    ));
     ocd.link_mut().assert_done();
 }
 

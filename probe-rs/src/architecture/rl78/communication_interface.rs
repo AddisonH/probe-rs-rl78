@@ -1018,6 +1018,140 @@ impl<L: Rl78Uart> UartOcd<L> {
         }
     }
 
+    /// Pseudo-RRM: read `data` as aligned words, since a word read answers two bytes where a
+    /// stopped target sends one `00H`.
+    fn g23_rrm_read(&mut self, address: u32, data: &mut [u8]) -> Result<Rrm, Rl78Error> {
+        let start = address & !1;
+        let end = (address + data.len() as u32 + 1) & !1;
+        for a in (start..end).step_by(2) {
+            let Some(word) = self.g23_rrm_access(a as u16, &[], 2)? else {
+                return Ok(Rrm::Stopped(Sync::default()));
+            };
+            for (i, b) in word.into_iter().enumerate() {
+                if let Some(d) = (a + i as u32)
+                    .checked_sub(address)
+                    .and_then(|o| data.get_mut(o as usize))
+                {
+                    *d = b;
+                }
+            }
+        }
+        Ok(Rrm::Done)
+    }
+
+    /// Pseudo-DMM: aligned pairs as words, the rest as bytes.
+    fn g23_rrm_write(&mut self, address: u32, data: &[u8]) -> Result<Rrm, Rl78Error> {
+        let mut at = 0;
+        while at < data.len() {
+            let a = address + at as u32;
+            let n = if a.is_multiple_of(2) && at + 1 < data.len() {
+                2
+            } else {
+                1
+            };
+            if self
+                .g23_rrm_access(a as u16, &data[at..at + n], 0)?
+                .is_none()
+            {
+                return Ok(Rrm::Stopped(Sync::default()));
+            }
+            at += n;
+        }
+        Ok(Rrm::Done)
+    }
+
+    /// One access through the ROM's handler, tried twice: four address nibbles (`A0H`–`AFH`),
+    /// then either `D2H` for a word read, or the data's nibbles (`B0H`–`BFH`) and `D9H` (byte)
+    /// or `DAH` (word). Each nibble's reply is the accumulator's low byte; the commit echoes.
+    /// `None` when the target has stopped.
+    fn g23_rrm_access(
+        &mut self,
+        address: u16,
+        write: &[u8],
+        read: usize,
+    ) -> Result<Option<Vec<u8>>, Rl78Error> {
+        for _ in 0..2 {
+            if let Some(reply) = self.g23_rrm_try(address, write, read)? {
+                return Ok(Some(reply));
+            }
+            if self.g23_rrm_stopped()? {
+                return Ok(None);
+            }
+            // A failed gate clears the handler's counts and answers nothing; so does D0H.
+            tracing::debug!("rl78: pseudo-RRM at {address:04X}H failed; trying again");
+            self.link.write(&[0xD0])?;
+        }
+        Err(Rl78Error::RrmUnanswered("its commands"))
+    }
+
+    fn g23_rrm_try(
+        &mut self,
+        address: u16,
+        write: &[u8],
+        read: usize,
+    ) -> Result<Option<Vec<u8>>, Rl78Error> {
+        // The accumulators hold whatever the last entry left, so the first nibble's reply is
+        // known only in its low nibble.
+        let nibbles =
+            |value: u16, n: usize| (0..n).rev().map(move |i| (value >> (4 * i)) as u8 & 0xF);
+        let mut acc = 0u16;
+        for (i, nibble) in nibbles(address, 4).enumerate() {
+            acc = acc << 4 | u16::from(nibble);
+            let mask = if i == 0 { 0x0F } else { 0xFF };
+            if !self.g23_rrm_expect(0xA0 | nibble, acc as u8, mask)? {
+                return Ok(None);
+            }
+        }
+        if read > 0 {
+            self.link.write(&[0xD2])?;
+            let mut word = [0; 2];
+            return Ok(self
+                .read_exact(&mut word, "pseudo-RRM", T_RRM)
+                .ok()
+                .map(|()| word.to_vec()));
+        }
+        let (value, n, commit) = match *write {
+            [b] => (u16::from(b), 2, 0xD9),
+            [lo, hi] => (u16::from_le_bytes([lo, hi]), 4, 0xDA),
+            _ => unreachable!("a byte or a word"),
+        };
+        acc = 0;
+        for (i, nibble) in nibbles(value, n).enumerate() {
+            acc = acc << 4 | u16::from(nibble);
+            let mask = if i == 0 { 0x0F } else { 0xFF };
+            if !self.g23_rrm_expect(0xB0 | nibble, acc as u8, mask)? {
+                return Ok(None);
+            }
+        }
+        Ok(self.g23_rrm_expect(commit, commit, 0xFF)?.then(Vec::new))
+    }
+
+    fn g23_rrm_expect(&mut self, cmd: u8, want: u8, mask: u8) -> Result<bool, Rl78Error> {
+        self.link.write(&[cmd])?;
+        let mut r = [0];
+        Ok(self.read_exact(&mut r, "pseudo-RRM", T_RRM).is_ok() && (r[0] ^ want) & mask == 0)
+    }
+
+    /// After an access went wrong: a stopped target is a locked monitor, which answers `90H`;
+    /// the handler of a running one ignores it. The monitor sends its `00H` after waiting about
+    /// 3,300 clocks, 100 ms on the subsystem clock, so the answer may come behind it.
+    fn g23_rrm_stopped(&mut self) -> Result<bool, Rl78Error> {
+        self.link.write(&[g23::VERSION])?;
+        let deadline = Instant::now() + T_G23_ATTACH_RUNNING;
+        let mut got = Vec::new();
+        let mut buf = [0; 16];
+        while !got.ends_with(&g23::VERSION_REPLY) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let n = self.link.read(&mut buf, left)?;
+            if n == 0 && left.is_zero() {
+                return Ok(false);
+            }
+            got.extend_from_slice(&buf[..n]);
+        }
+        tracing::debug!("rl78: the target stopped during pseudo-RRM");
+        Ok(true)
+    }
+
     fn g23_poll_stopped(&mut self) -> Result<Option<Sync>, Rl78Error> {
         let mut buf = [0];
         if self.link.read(&mut buf, Duration::ZERO)? == 0 {
@@ -1088,7 +1222,7 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
 
     fn rrm_read(&mut self, address: u32, data: &mut [u8]) -> Result<Rrm, Rl78Error> {
         if self.monitor == Rl78Monitor::G23 {
-            return Err(Rl78Error::Unsupported("pseudo-RRM on this monitor"));
+            return self.g23_rrm_read(address, data);
         }
         let len = data.len();
         for (i, byte) in data.iter_mut().enumerate() {
@@ -1103,7 +1237,7 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
 
     fn rrm_write(&mut self, address: u32, data: &[u8]) -> Result<Rrm, Rl78Error> {
         if self.monitor == Rl78Monitor::G23 {
-            return Err(Rl78Error::Unsupported("pseudo-DMM on this monitor"));
+            return self.g23_rrm_write(address, data);
         }
         let mut at = 0;
         while at < data.len() {
@@ -1222,6 +1356,11 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 
     fn reset(&mut self) -> Result<(), Rl78Error> {
+        if self.monitor == Rl78Monitor::G23 {
+            // The debug stub turns the link on at this rate.
+            self.link.set_line(G23_RUN_BAUD, false)?;
+            self.g23 = G23Link::default();
+        }
         self.link.set_reset(true)?;
         std::thread::sleep(T_RESET_HOLD);
         self.link.set_reset(false)?;

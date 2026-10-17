@@ -543,16 +543,17 @@ impl Rl78<'_> {
 ///
 /// - **The session's security ID** at `000C4H`–`000CDH`. A toolchain leaves it erased, which
 ///   makes the part's ID ten `FFH` and locks out the next attach.
-/// - **The debug stub** at `000CEH`–`000D7H`, with the reset vector pointed at it and `000C3H`
-///   bits 3 and 1 set. It arms the monitor at every boot and branches to the
-///   image's own entry, so the program runs after a normal reset with its own watchdog setting,
-///   and a `00H` on TOOL0 halts it. `PROBE_RS_RL78_DEBUG_STUB=0` leaves it out, for an image that
-///   ships: an armed monitor halts the part on any byte that reaches TOOL0.
+/// - **The debug stub** at `000CEH`–`000D7H` (on the G23, the CALLT table's last 10 bytes,
+///   [`G23_STUB_AT`]), with the reset vector pointed at it and `000C3H` bits 3 and 1 set. It
+///   arms the monitor at every boot and branches to the image's own entry, so the program runs
+///   after a normal reset with its own watchdog setting, and a `00H` on TOOL0 halts it. On the
+///   G23 the pseudo-RRM hook comes with it ([`G23_RRM_HOOK`]). `PROBE_RS_RL78_DEBUG_STUB=0`
+///   leaves them out, for an image that ships: an armed monitor halts the part on any byte that
+///   reaches TOOL0.
 #[derive(Debug)]
 pub struct Rl78Flash {
     debug_stub: bool,
-    /// Whole images over the flash protocol rather than by self-programming.
-    flash_protocol: bool,
+    monitor: Rl78Monitor,
 }
 
 /// `MOV !F0080H,#0C5H` / `MOV FFFAFH,#40H` / `BR !entry`, without the entry.
@@ -561,22 +562,36 @@ pub(super) const DEBUG_STUB_AT: usize = 0xCE;
 pub(super) const DEBUG_STUB_LEN: usize = DEBUG_STUB.len() + 2;
 const HEAD: usize = DEBUG_STUB_AT + DEBUG_STUB_LEN;
 
+/// On the G23, `000CEH`–`000D7H` is not all the stub's: the monitor branches to `000D4H` on
+/// every entry when `00002H` holds `01H`. There goes [`G23_RRM_HOOK`], and the stub goes in the
+/// CALLT table's last 10 bytes, which the 16-bit reset vector reaches.
+pub(super) const G23_STUB_AT: usize = 0xB6;
+pub(super) const G23_RRM_ENABLE_AT: usize = 0x02;
+pub(super) const G23_RRM_HOOK_AT: usize = 0xD4;
+/// `BR !!0EFFA5H`: the ROM's pseudo-RRM/DMM handler at `0EFB00H`, through its jump table. It
+/// serves the nibble commands and passes breaks and the halt byte on to the monitor.
+pub(super) const G23_RRM_HOOK: [u8; 4] = [0xEC, 0xA5, 0xFF, 0x0E];
+
 impl Rl78Flash {
     /// The sequence, with the debug stub unless `PROBE_RS_RL78_DEBUG_STUB` is `0`.
     pub fn from_env() -> Self {
         Self {
             debug_stub: std::env::var("PROBE_RS_RL78_DEBUG_STUB").as_deref() != Ok("0"),
-            flash_protocol: false,
+            monitor: Rl78Monitor::G15,
         }
     }
 
-    /// The RL78/G23's sequence: no debug stub, and whole images over the flash protocol
-    /// (Protocol C), which costs a reset but needs nothing of the program or its clock.
+    /// The RL78/G23's sequence: whole images over the flash protocol (Protocol C), which costs
+    /// a reset but needs nothing of the program or its clock.
     pub fn g23() -> Self {
         Self {
-            debug_stub: false,
-            flash_protocol: true,
+            monitor: Rl78Monitor::G23,
+            ..Self::from_env()
         }
+    }
+
+    fn flash_protocol(&self) -> bool {
+        self.monitor == Rl78Monitor::G23
     }
 
     /// `data` for `address` as it goes into flash: the image's first page with the session's
@@ -619,27 +634,52 @@ impl Rl78Flash {
                      debugging (OCDENSET = 0): the debugger cannot attach to the part afterwards"
                 );
             }
-        } else if !self.debug_stub || entry == DEBUG_STUB_AT as u16 {
-            // Left out on request, or already there.
+            return Cow::Owned(page);
+        }
+        if !self.debug_stub {
+            return Cow::Owned(page);
+        }
+        let at = match self.monitor {
+            Rl78Monitor::G23 => G23_STUB_AT,
+            _ => DEBUG_STUB_AT,
+        };
+        let stub = at..at + DEBUG_STUB_LEN;
+        if entry == at as u16 {
+            // Already there.
         } else if entry == 0xFFFF {
             if report {
                 tracing::warn!("rl78: the image has no reset vector: no debug stub");
             }
-        } else if !erased(DEBUG_STUB_AT..HEAD) {
+        } else if !erased(stub.clone()) {
             if report {
                 tracing::warn!(
-                    "rl78: the image uses 000CEH-000D7H, where the debug stub goes: the program \
-                     cannot be halted after a reset. Leave those 10 bytes free in the link map."
+                    "rl78: the image uses {:05X}H-{:05X}H, where the debug stub goes: the program \
+                     cannot be halted after a reset. Leave those 10 bytes free in the link map.",
+                    stub.start,
+                    stub.end - 1
                 );
             }
         } else {
-            page[DEBUG_STUB_AT..DEBUG_STUB_AT + DEBUG_STUB.len()].copy_from_slice(&DEBUG_STUB);
-            page[DEBUG_STUB_AT + DEBUG_STUB.len()..HEAD].copy_from_slice(&entry.to_le_bytes());
-            page[..2].copy_from_slice(&(DEBUG_STUB_AT as u16).to_le_bytes());
+            page[at..at + DEBUG_STUB.len()].copy_from_slice(&DEBUG_STUB);
+            page[at + DEBUG_STUB.len()..stub.end].copy_from_slice(&entry.to_le_bytes());
+            page[..2].copy_from_slice(&(at as u16).to_le_bytes());
             page[OCD_OPTION] |= 0x0A;
             if report {
                 tracing::info!(
-                    "rl78: debug stub at 000CEH, branching to the image's entry {entry:05X}H"
+                    "rl78: debug stub at {at:05X}H, branching to the image's entry {entry:05X}H"
+                );
+            }
+        }
+        if self.monitor == Rl78Monitor::G23 {
+            let hook = G23_RRM_HOOK_AT..G23_RRM_HOOK_AT + G23_RRM_HOOK.len();
+            let enable = G23_RRM_ENABLE_AT..G23_RRM_ENABLE_AT + 2;
+            if erased(hook.clone()) && erased(enable.clone()) {
+                page[hook].copy_from_slice(&G23_RRM_HOOK);
+                page[G23_RRM_ENABLE_AT] = 0x01;
+            } else if report && page[hook] != G23_RRM_HOOK {
+                tracing::warn!(
+                    "rl78: the image uses 00002H or 000D4H-000D7H: no memory access while the \
+                     program runs"
                 );
             }
         }
@@ -762,7 +802,7 @@ impl DebugFlashSequence for Rl78Flash {
     fn erase_all(&self, session: &mut Session) -> Result<(), Error> {
         let flash = code_flash(session.target())?;
         let mut core = session.get_rl78_core()?;
-        if self.flash_protocol {
+        if self.flash_protocol() {
             // A G23 whose ID is erased refuses every ID, so block 0 gets the session's back.
             let erase: Vec<u32> = flash.clone().step_by(g23::BLOCK).collect();
             let first = monitor_image_g23(g23::BLOCK, core.interface.security_id());
@@ -778,7 +818,7 @@ impl DebugFlashSequence for Rl78Flash {
         session: &mut Session,
         regions: &[(&NvmRegion, &FlashLayout)],
     ) -> Result<bool, Error> {
-        if !self.flash_protocol {
+        if !self.flash_protocol() {
             return Ok(false);
         }
         let flash = code_flash(session.target())?;
@@ -900,6 +940,29 @@ mod tests {
     }
 
     #[test]
+    fn g23_stub_goes_in_the_callt_table_and_the_rrm_hook_at_000d4h() {
+        let page = linked_page();
+        let out = Rl78Flash {
+            debug_stub: true,
+            monitor: Rl78Monitor::G23,
+        }
+        .debug_image(0, &page, ID, false);
+        assert_eq!(
+            out[..4],
+            [0xB6, 0x00, 0x01, 0xFF],
+            "reset vector, pseudo-RRM on"
+        );
+        assert_eq!(
+            out[0xB6..0xC0],
+            [0xCF, 0x80, 0x00, 0xC5, 0xCE, 0xAF, 0x40, 0xED, 0xD8, 0x00]
+        );
+        assert_eq!(out[0xC3], 0x8F, "debug-in-use bits 3 and 1");
+        assert_eq!(out[0xCE..0xD4], [0xFF; 6]);
+        assert_eq!(out[0xD4..0xD8], [0xEC, 0xA5, 0xFF, 0x0E]);
+        assert_eq!(out[0xD8..], page[0xD8..]);
+    }
+
+    #[test]
     fn contiguous_blocks_are_one_run_and_erased_ones_none() {
         let block = |b: u8| vec![b; g23::BLOCK];
         let blocks = BTreeMap::from([
@@ -933,7 +996,7 @@ mod tests {
         let page = linked_page();
         let out = Rl78Flash {
             debug_stub: true,
-            flash_protocol: false,
+            monitor: Rl78Monitor::G15,
         }
         .debug_image(0, &page, ID, false);
         assert_eq!(out[..2], [0xCE, 0x00], "reset vector to the stub");
@@ -953,7 +1016,7 @@ mod tests {
         page[0xCE] = 0x00;
         let out = Rl78Flash {
             debug_stub: true,
-            flash_protocol: false,
+            monitor: Rl78Monitor::G15,
         }
         .debug_image(0, &page, ID, false);
         assert_eq!(
@@ -965,7 +1028,7 @@ mod tests {
         let page = linked_page();
         let out = Rl78Flash {
             debug_stub: false,
-            flash_protocol: false,
+            monitor: Rl78Monitor::G15,
         }
         .debug_image(0, &page, ID, false);
         assert_eq!(out[..2], page[..2], "no stub when asked");
@@ -975,7 +1038,7 @@ mod tests {
         assert_eq!(
             *Rl78Flash {
                 debug_stub: true,
-                flash_protocol: false,
+                monitor: Rl78Monitor::G15,
             }
             .debug_image(0x100, &tail, ID, false),
             tail[..]
