@@ -8,7 +8,7 @@
 
 use std::{borrow::Cow, ops::Range, time::Duration};
 
-use probe_rs_target::MemoryRegion;
+use probe_rs_target::{MemoryRegion, Rl78Monitor};
 
 use super::{
     Rl78, STUB_BUF_BELOW, STUB_BUF_SIZE,
@@ -564,6 +564,16 @@ fn monitor_image(size: usize, security_id: [u8; SECURITY_ID_LEN]) -> Vec<u8> {
     image
 }
 
+/// The G23's [`monitor_image`]: option bytes as the FPB's sample project sets them, with a
+/// wrong security ID not erasing flash, and the session's ID. The G23 needs no stub: the debugger
+/// starts its programs itself.
+fn monitor_image_g23(size: usize, security_id: [u8; SECURITY_ID_LEN]) -> Vec<u8> {
+    let mut image = vec![0xFF; size];
+    image[0xC0..0xC4].copy_from_slice(&[0xEF, 0x3A, 0xE8, 0x85]);
+    image[SECURITY_ID].copy_from_slice(&security_id);
+    image
+}
+
 /// Attach, and if the debugger cannot reach the part (it is blank, its security ID is not the
 /// session's, or its debug stub is gone) and erasing it is permitted, recover it over the flash
 /// protocol: erase all of code flash and write [`monitor_image`], then attach again. Without
@@ -598,7 +608,10 @@ pub(crate) fn attach_or_recover(
         "rl78: {error} Erase-all is allowed: erasing all of code flash over the flash protocol"
     );
     let flash = code_flash(target)?;
-    let image = monitor_image(flash.len(), interface.security_id());
+    let image = match interface.monitor() {
+        Rl78Monitor::G23 => monitor_image_g23(flash.len(), interface.security_id()),
+        _ => monitor_image(flash.len(), interface.security_id()),
+    };
     interface.erase_all_and_program(&image)?;
     Ok(Attached::UnderReset(interface.attach()?))
 }

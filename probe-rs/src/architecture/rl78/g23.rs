@@ -48,12 +48,40 @@ pub const DFLCTL: u32 = 0xF_0090;
 /// The rates the entry frame can choose, and their codes.
 pub const RATES: [(u32, u8); 4] = [(115_200, 0), (250_000, 1), (500_000, 2), (1_000_000, 3)];
 
-/// `CAH`, then Baud Rate Set at `rate`'s code, for 1.8 V.
-pub fn entry(rate_code: u8) -> [u8; 8] {
-    let body = [0x03, 0x9A, rate_code, 0x12];
-    let sum = body.iter().fold(0u8, |s, b| s.wrapping_sub(*b));
-    [0xCA, 0x01, body[0], body[1], body[2], body[3], sum, 0x03]
+/// `mode`, then the flash protocol's Baud Rate Set at `rate`'s code, for 1.8 V. Mode `CAH` is
+/// the monitor; `00H` is the flash protocol itself (Protocol C).
+pub fn entry(mode: u8, rate_code: u8) -> Vec<u8> {
+    let mut out = vec![mode];
+    out.extend(packet(SOH, &[0x9A, rate_code, 0x12], ETX));
+    out
 }
+
+/// Protocol C's packets: a command (`SOH`) or data (`STX`), ended by `ETX`, or `ETB` when more
+/// data follows. `LEN` is 0 for 256 bytes; `SUM` makes `LEN` and the body add up to 0.
+pub const SOH: u8 = 0x01;
+pub const STX: u8 = 0x02;
+pub const ETX: u8 = 0x03;
+pub const ETB: u8 = 0x17;
+pub const ACK: u8 = 0x06;
+
+pub fn packet(start: u8, body: &[u8], end: u8) -> Vec<u8> {
+    let len = body.len() as u8;
+    let sum = body
+        .iter()
+        .fold(len, |s, b| s.wrapping_add(*b))
+        .wrapping_neg();
+    let mut out = vec![start, len];
+    out.extend_from_slice(body);
+    out.extend([sum, end]);
+    out
+}
+
+/// Protocol C commands.
+pub const PC_RESET: u8 = 0x00;
+pub const PC_BLOCK_ERASE: u8 = 0x22;
+pub const PC_PROGRAM: u8 = 0x40;
+/// Code flash's erase and programming unit.
+pub const BLOCK: usize = 0x800;
 
 /// The security ID followed by its checksum, the sum of its bytes less one.
 pub fn unlock_id(id: &[u8; SECURITY_ID_LEN]) -> [u8; SECURITY_ID_LEN + 1] {
@@ -72,8 +100,17 @@ mod tests {
 
     #[test]
     fn entry_frame_matches_the_vendor() {
-        assert_eq!(entry(0), [0xCA, 0x01, 0x03, 0x9A, 0x00, 0x12, 0x51, 0x03]);
-        assert_eq!(entry(3)[6], 0x4E);
+        assert_eq!(
+            entry(0xCA, 0),
+            [0xCA, 0x01, 0x03, 0x9A, 0x00, 0x12, 0x51, 0x03]
+        );
+        assert_eq!(entry(0xCA, 3)[6], 0x4E);
+        // The flash protocol's reset and its ACK, as on the wire.
+        assert_eq!(
+            packet(SOH, &[PC_RESET], ETX),
+            [0x01, 0x01, 0x00, 0xFF, 0x03]
+        );
+        assert_eq!(packet(STX, &[ACK], ETX), [0x02, 0x01, 0x06, 0xF9, 0x03]);
     }
 
     #[test]

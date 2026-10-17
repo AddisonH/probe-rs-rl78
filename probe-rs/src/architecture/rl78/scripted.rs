@@ -224,7 +224,7 @@ impl Script {
             .line(Line::Reset(false))
             .line(Line::Tool0Low(false))
             .line(Line::Flush)
-            .exchange(&g23::entry(3), &[0xFF])
+            .exchange(&g23::entry(0xCA, 3), &[0xFF])
             .line(Line::Rate(1_000_000, false))
             .line(Line::Flush)
             .g23_unlock()
@@ -646,5 +646,51 @@ fn g23_a_monitor_left_halted_is_not_a_running_program() {
     let mut ocd = UartOcd::new(s.0, [0; 10]);
     ocd.set_monitor(Rl78Monitor::G23).unwrap();
     assert!(ocd.attach_running().unwrap().is_some());
+    ocd.link_mut().assert_done();
+}
+
+#[test]
+fn g23_recovery_erases_every_block_and_writes_only_the_programmed_ones() {
+    let mut image = vec![0xFF; 2 * g23::BLOCK];
+    image[0xC0..0xC4].copy_from_slice(&[0xEF, 0x3A, 0xE8, 0x85]);
+    let ack = g23::packet(g23::STX, &[g23::ACK], g23::ETX);
+    let mut s = Script::default();
+    s.line(Line::Rate(115_200, false))
+        .line(Line::Reset(true))
+        .line(Line::Tool0Low(true))
+        .line(Line::Reset(false))
+        .line(Line::Tool0Low(false))
+        .line(Line::Flush)
+        // Mode 00H, the flash protocol; its answer is at 115200, then the new rate.
+        .exchange(
+            &g23::entry(0x00, 3),
+            &g23::packet(g23::STX, &[g23::ACK, 0x20, 0x00], g23::ETX),
+        )
+        .line(Line::Rate(1_000_000, false))
+        .exchange(&g23::packet(g23::SOH, &[g23::PC_RESET], g23::ETX), &ack)
+        .exchange(
+            &g23::packet(g23::SOH, &[0x22, 0x00, 0x00, 0x00], g23::ETX),
+            &ack,
+        )
+        .exchange(
+            &g23::packet(g23::SOH, &[0x22, 0x00, 0x08, 0x00], g23::ETX),
+            &ack,
+        )
+        .exchange(
+            &g23::packet(
+                g23::SOH,
+                &[0x40, 0x00, 0x00, 0x00, 0xFF, 0x07, 0x00],
+                g23::ETX,
+            ),
+            &ack,
+        );
+    let written = g23::packet(g23::STX, &[g23::ACK, g23::ACK], g23::ETX);
+    for (i, page) in image[..g23::BLOCK].chunks(256).enumerate() {
+        let end = if i == 7 { g23::ETX } else { g23::ETB };
+        s.exchange(&g23::packet(g23::STX, page, end), &written);
+    }
+    let mut ocd = UartOcd::new(s.0, [0; 10]);
+    ocd.set_monitor(Rl78Monitor::G23).unwrap();
+    ocd.erase_all_and_program(&image).unwrap();
     ocd.link_mut().assert_done();
 }

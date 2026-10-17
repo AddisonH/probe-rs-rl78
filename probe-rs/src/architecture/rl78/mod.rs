@@ -327,12 +327,13 @@ impl<'probe> Rl78<'probe> {
     /// Start the program from the attach state as a reset would, by pointing the monitor's
     /// return at the reset vector's target with PSW, CS and ES at their reset values. The G23
     /// monitor answers no halt after a normal boot, so its programs are started this way.
-    fn start_at_entry(&mut self) -> Result<u32, Error> {
+    /// `None` when code flash has no reset vector: there is no program to start.
+    fn start_at_entry(&mut self) -> Result<Option<u32>, Error> {
         let mut vector = [0; 2];
         self.read_bytes(0, &mut vector)?;
         let entry = u32::from(u16::from_le_bytes(vector));
         if entry == 0xFFFF {
-            return Err(Error::Other("code flash has no reset vector".into()));
+            return Ok(None);
         }
         let ctx = self.load_context()?;
         ctx.set(PC_ID, entry);
@@ -341,7 +342,7 @@ impl<'probe> Rl78<'probe> {
         ctx.set(ES_ID, 0x0F);
         self.state.at_boot_rom = false;
         tracing::info!("rl78: starting the program at its entry {entry:05X}H");
-        Ok(entry)
+        Ok(Some(entry))
     }
 
     fn require_halted(&self, what: &'static str) -> Result<(), Error> {
@@ -1137,9 +1138,10 @@ impl CoreInterface for Rl78<'_> {
             return Ok(());
         }
         self.state.resume_at_detach = false;
-        if self.in_boot_rom() && self.g23() {
-            self.start_at_entry()?;
-        } else if self.in_boot_rom() {
+        if self.in_boot_rom() && self.g23() && self.start_at_entry()?.is_none() {
+            tracing::info!("rl78: code flash has no reset vector: no program to start");
+            return Ok(());
+        } else if self.in_boot_rom() && !self.g23() {
             // Resuming here would only run the boot ROM's idle loop, with the watchdog running
             // whatever the option byte says. Boot the program instead: a normal reset, after
             // which the debug stub in flash arms the monitor again.
@@ -1204,7 +1206,9 @@ impl CoreInterface for Rl78<'_> {
         self.disarm()?;
         self.state.resume_at_detach = false;
         if self.in_boot_rom() && self.g23() {
-            self.start_at_entry()?;
+            if self.start_at_entry()?.is_none() {
+                return Err(Error::Other("code flash has no reset vector".into()));
+            }
             self.state.halt_reason = Some(HaltReason::Step);
         } else if self.in_boot_rom() {
             self.boot_to_entry()?;

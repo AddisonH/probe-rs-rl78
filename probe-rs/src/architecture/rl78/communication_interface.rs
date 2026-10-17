@@ -40,7 +40,7 @@ pub enum Rl78Error {
     NoMonitor,
 
     /// The security ID was rejected. Set the part's ID with PROBE_RS_RL78_SECURITY_ID (a blank
-    /// part's is FFFFFFFFFFFFFFFFFFFF).
+    /// G15's is FFFFFFFFFFFFFFFFFFFF; a blank G23 refuses every ID).
     SecurityIdRejected,
 
     /// The core is running; {0} needs it halted.
@@ -615,7 +615,7 @@ impl<L: Rl78Uart> UartOcd<L> {
             .expect("a rate the frame can choose");
         self.link.set_line(115_200, false)?;
         self.boot_mode_reset()?;
-        self.link.write(&g23::entry(code))?;
+        self.link.write(&g23::entry(0xCA, code))?;
         // The monitor answers 00H at the new rate before the host can switch to it, so the
         // byte is taken whatever it reads as, and 90H is the check.
         self.link.read(&mut [0], T_G23_ENTRY)?;
@@ -631,6 +631,81 @@ impl<L: Rl78Uart> UartOcd<L> {
             }
             e => e,
         })
+    }
+
+    /// Into the flash protocol (Protocol C) at [`G23_BAUD`], ready for commands.
+    fn g23_flash_mode(&mut self) -> Result<(), Rl78Error> {
+        let (baud, code) = *g23::RATES
+            .iter()
+            .find(|(baud, _)| *baud == G23_BAUD)
+            .expect("a rate the frame can choose");
+        self.link.set_line(115_200, false)?;
+        self.boot_mode_reset()?;
+        self.link.write(&g23::entry(0x00, code))?;
+        // STX, LEN, status, the CPU's MHz, the flash mode, SUM, ETX; then the new rate, after
+        // at least a millisecond.
+        let mut r = [0; 7];
+        self.read_exact(&mut r, "baud rate set", REPLY_TIMEOUT)?;
+        pb_status("baud rate set", r[2], &[g23::ACK])?;
+        std::thread::sleep(Duration::from_millis(2));
+        self.link.set_line(baud, false)?;
+        self.g23_pc_command("reset", &[g23::PC_RESET])
+            .map_err(|e| match e {
+                // Only the ID authentication command is taken first when it is enabled.
+                Rl78Error::FlashProtocol { status: 0x04, .. } => Rl78Error::Other(
+                    "the part asks for its flash programmer ID first, which probe-rs does not send"
+                        .into(),
+                ),
+                e => e,
+            })
+    }
+
+    /// One Protocol C command and its status packet.
+    fn g23_pc_command(&mut self, op: &'static str, body: &[u8]) -> Result<(), Rl78Error> {
+        let req = g23::packet(g23::SOH, body, g23::ETX);
+        tracing::trace!("rl78 {op}: TX {req:02x?}");
+        self.link.write(&req)?;
+        let mut r = [0; 5];
+        self.read_exact(&mut r, op, REPLY_TIMEOUT)?;
+        if r[0] != g23::STX {
+            return Err(CodecError::Protocol(op).into());
+        }
+        pb_status(op, r[2], &[g23::ACK])
+    }
+
+    /// Erase all of code flash and write `image` over Protocol C, block by block, leaving out
+    /// blocks that are all `FFH`.
+    fn g23_erase_all_and_program(&mut self, image: &[u8]) -> Result<(), Rl78Error> {
+        let started = Instant::now();
+        self.g23_flash_mode()?;
+        let at = |a: usize| [a as u8, (a >> 8) as u8, (a >> 16) as u8];
+        for block in (0..image.len()).step_by(g23::BLOCK) {
+            let [l, m, h] = at(block);
+            self.g23_pc_command("block erase", &[g23::PC_BLOCK_ERASE, l, m, h])?;
+        }
+        for (i, data) in image.chunks(g23::BLOCK).enumerate() {
+            if data.iter().all(|&b| b == 0xFF) {
+                continue;
+            }
+            let start = i * g23::BLOCK;
+            let ([sl, sm, sh], [el, em, eh]) = (at(start), at(start + data.len() - 1));
+            self.g23_pc_command("programming", &[g23::PC_PROGRAM, sl, sm, sh, el, em, eh])?;
+            let pages = data.chunks(256).count();
+            for (j, page) in data.chunks(256).enumerate() {
+                let end = if j + 1 == pages { g23::ETX } else { g23::ETB };
+                self.link.write(&g23::packet(g23::STX, page, end))?;
+                let mut r = [0; 6];
+                self.read_exact(&mut r, "programming", REPLY_TIMEOUT)?;
+                pb_status("programming", r[2], &[g23::ACK])?;
+                pb_status("programming", r[3], &[g23::ACK])?;
+            }
+        }
+        tracing::info!(
+            "rl78: wrote {} bytes over the flash protocol in {:.2?}",
+            image.len(),
+            started.elapsed()
+        );
+        Ok(())
     }
 
     /// A program the debugger started keeps the monitor's link at [`G23_BAUD`], and halts on
@@ -649,12 +724,17 @@ impl<L: Rl78Uart> UartOcd<L> {
             ..protocol::State::new()
         };
         // A monitor left halted by an earlier session answers the 00H too, by restarting its
-        // handshake, but is still unlocked. That part is attached under reset, as on the G15.
-        if self.g23_unlock()? {
-            tracing::debug!("rl78: the monitor was already halted, not running a program");
-            return Ok(None);
+        // handshake, but is still unlocked. That part is attached under reset, as on the G15,
+        // and so is one that refuses the ID, for the attach to decide what to do about it.
+        match self.g23_unlock() {
+            Ok(false) => Ok(Some(Sync::default())),
+            Ok(true) => {
+                tracing::debug!("rl78: the monitor was already halted, not running a program");
+                Ok(None)
+            }
+            Err(Rl78Error::SecurityIdRejected) => Ok(None),
+            Err(e) => Err(e),
         }
-        Ok(Some(Sync::default()))
     }
 
     /// Unlock; true if the monitor was unlocked already.
@@ -985,7 +1065,7 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
 
     fn erase_all_and_program(&mut self, image: &[u8]) -> Result<(), Rl78Error> {
         if self.monitor == Rl78Monitor::G23 {
-            return Err(Rl78Error::Unsupported("the flash protocol on this monitor"));
+            return self.g23_erase_all_and_program(image);
         }
         let started = Instant::now();
         self.boot_mode_reset()?;
