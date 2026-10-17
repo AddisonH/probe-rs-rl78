@@ -1,6 +1,6 @@
 //! Stops at an exact address with no flash write, from the two execution-address comparators: at
 //! `F0081H` and `F0083H` on the G15, and with 20-bit addresses at `F0081H` and `F0089H` on the
-//! G23, whose stop rule is the same (notes §55.15).
+//! G23, whose stop rule is the same.
 //!
 //! A comparator matches the start of an executed instruction and stops the program at the first
 //! instruction boundary at least four CPU clocks later. So matching an instruction four clocks
