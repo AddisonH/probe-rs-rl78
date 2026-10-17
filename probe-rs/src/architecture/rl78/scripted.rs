@@ -3,16 +3,20 @@
 //! [`ScriptedUart`] stands in for the probe: each test lists the bytes the driver must send and
 //! the target's replies, in order, and the uart panics on anything it was not told to expect. That
 //! pins down orderings that matter on the wire (RAM restored before the resume, RESET before
-//! TOOL0, a poll before a halt) without a board. The scenarios come from runs on an RL78/G15 FPB.
+//! TOOL0, a poll before a halt) without a board. The scenarios come from runs on the RL78/G15 and
+//! RL78/G23 FPBs.
 
 use std::collections::VecDeque;
 use std::time::Duration;
 
+use probe_rs_target::Rl78Monitor;
+
 use super::{
     Rl78, Rl78CoreState,
     communication_interface::{Rl78Error, Rl78OcdInterface, Rl78Uart, UartOcd},
+    g23,
     registers::*,
-    sequences::DefaultRl78Sequence,
+    sequences::{DefaultRl78Sequence, G23Rl78Sequence},
 };
 use crate::{CoreInterface, CoreStatus, Error, HaltReason, MemoryInterface, core::RegisterId};
 
@@ -21,6 +25,8 @@ enum Line {
     Reset(bool),
     Tool0Low(bool),
     Flush,
+    /// Baud, odd parity.
+    Rate(u32, bool),
 }
 
 #[derive(Debug)]
@@ -101,6 +107,11 @@ impl Rl78Uart for ScriptedUart {
         self.rx.clear();
         Ok(())
     }
+
+    fn set_line(&mut self, baud: u32, odd_parity: bool) -> Result<(), Rl78Error> {
+        self.take_line(Line::Rate(baud, odd_parity));
+        Ok(())
+    }
 }
 
 /// Builds the target's side of a session, one monitor transaction at a time.
@@ -176,6 +187,58 @@ impl Script {
     }
 }
 
+/// The G23 monitor's side of a session.
+impl Script {
+    fn g23_read(&mut self, addr: u32, data: &[u8]) -> &mut Self {
+        for (i, chunk) in data.chunks(256).enumerate() {
+            let a = addr - 0xF_0000 + 256 * i as u32;
+            self.exchange(&[0x92, a as u8, (a >> 8) as u8, chunk.len() as u8], chunk);
+        }
+        self
+    }
+
+    fn g23_write(&mut self, addr: u32, data: &[u8]) -> &mut Self {
+        for (i, chunk) in data.chunks(256).enumerate() {
+            let a = addr - 0xF_0000 + 256 * i as u32;
+            let mut tx = vec![0x93, a as u8, (a >> 8) as u8, chunk.len() as u8];
+            tx.extend_from_slice(chunk);
+            self.exchange(&tx, &[0x93]);
+        }
+        self
+    }
+
+    fn g23_unlock(&mut self) -> &mut Self {
+        let mut id = vec![0; 10];
+        id.push(0xFF);
+        self.exchange(&[0x90], &[0x05, 0x01])
+            .exchange(&[0x91], &[0xF1])
+            .exchange(&id, &[0xF2])
+    }
+
+    /// The boot-mode reset, then `CAH` with Baud Rate Set at 1 Mbaud. The monitor's `00H`
+    /// comes back at the new rate and reads as `FFH`.
+    fn g23_attach(&mut self) -> &mut Self {
+        self.line(Line::Rate(115_200, false))
+            .line(Line::Reset(true))
+            .line(Line::Tool0Low(true))
+            .line(Line::Reset(false))
+            .line(Line::Tool0Low(false))
+            .line(Line::Flush)
+            .exchange(&g23::entry(3), &[0xFF])
+            .line(Line::Rate(1_000_000, false))
+            .line(Line::Flush)
+            .g23_unlock()
+    }
+
+    /// The register file's sources: the context block, the banks, SP, then CS/ES/PMC/MEM.
+    fn g23_context(&mut self, block: [u8; 10], banks: [u8; 32], sp: u16) -> &mut Self {
+        self.g23_read(g23::CONTEXT, &block)
+            .g23_read(0xF_FEE0, &banks)
+            .g23_read(0xF_FFF8, &sp.to_le_bytes())
+            .g23_read(0xF_FFFC, &[0x0E, 0x00, 0x00, 0x00])
+    }
+}
+
 /// A session that has just attached with entry sync `sync`, then runs `script`.
 struct Session {
     ocd: UartOcd<ScriptedUart>,
@@ -203,13 +266,25 @@ impl Session {
         Self { ocd, state }
     }
 
+    /// A G23 just attached under reset.
+    fn fresh_g23(script: impl FnOnce(&mut Script)) -> Self {
+        let mut s = Script::default();
+        s.g23_attach();
+        script(&mut s);
+        let mut ocd = UartOcd::new(s.0, [0; 10]);
+        ocd.set_monitor(Rl78Monitor::G23).unwrap();
+        let entry = ocd.attach().unwrap();
+        let mut state = Rl78CoreState::new();
+        state.attached(super::flash::Attached::UnderReset(entry));
+        Self { ocd, state }
+    }
+
     fn core(&mut self) -> Rl78<'_> {
-        Rl78::new(
-            &mut self.ocd,
-            &mut self.state,
-            DefaultRl78Sequence::create(),
-        )
-        .unwrap()
+        let sequence = match self.ocd.monitor() {
+            Rl78Monitor::G23 => G23Rl78Sequence::create(),
+            _ => DefaultRl78Sequence::create(),
+        };
+        Rl78::new(&mut self.ocd, &mut self.state, sequence).unwrap()
     }
 
     fn assert_done(mut self) {
@@ -445,6 +520,105 @@ fn reset_boots_the_program_with_tool0_high() {
             .line(Line::Flush);
     });
     s.core().reset().unwrap();
+    assert!(!s.core().core_halted().unwrap());
+    s.assert_done();
+}
+
+/// The G23 as `CAH` leaves it, read on the FPB: halted after the mode entry's own `FFH` at
+/// 0EFF4BH, AX holding the mode byte, SP where the entry code put it.
+const G23_ATTACHED: [u8; 10] = [0xF0, 0xCA, 0xF0, 0xFF, 0x03, 0x00, 0x4C, 0xFF, 0x0E, 0x46];
+
+/// Bank 0 in RAM holds the monitor's working values except D and E, and ES in C.
+fn g23_banks(c_es: u8) -> [u8; 32] {
+    let mut banks = [0; 32];
+    banks[24..32].copy_from_slice(&[0x92, 0x92, c_es, 0x05, 0xC0, 0x00, 0xFE, 0xFE]);
+    banks
+}
+
+#[test]
+fn g23_registers_come_from_the_context_block() {
+    let mut s = Session::fresh_g23(|s| {
+        s.g23_context(G23_ATTACHED, g23_banks(0x00), 0xFC00);
+    });
+    let mut core = s.core();
+    let bank0: Vec<u32> = (0..8).map(|i| reg(&mut core, i)).collect();
+    // X A from AX, C B from BC, E D live, L H from HL.
+    assert_eq!(bank0, [0xF0, 0xCA, 0x03, 0x00, 0xC0, 0x00, 0xF0, 0xFF]);
+    assert_eq!(reg(&mut core, PC_ID), 0xE_FF4C);
+    assert_eq!(reg(&mut core, PSW_ID), 0x46);
+    assert_eq!(reg(&mut core, SP_ID), 0xF_FC00);
+    assert_eq!(
+        reg(&mut core, ES_ID),
+        0x00,
+        "ES from bank 0's C, not FFFFDH"
+    );
+    assert_eq!(reg(&mut core, CS_ID), 0x0E);
+    drop(core);
+    s.assert_done();
+}
+
+#[test]
+fn g23_step_arms_f0088h_and_unlocks_again() {
+    let mut at_main = G23_ATTACHED;
+    at_main[6..10].copy_from_slice(&[0x8A, 0x08, 0x00, 0x06]);
+    let mut stepped = at_main;
+    stepped[6] = 0x8D;
+    let mut s = Session::fresh_g23(|s| {
+        s.g23_context(G23_ATTACHED, g23_banks(0x00), 0xFC00)
+            // The PC and PSW the debugger set go back into the block.
+            .g23_write(g23::CONTEXT, &at_main)
+            .g23_write(g23::STEP_ENABLE, &[0x01])
+            // The echo, then the monitor's 00H on entry after one instruction.
+            .exchange(&[0x95], &[0x95, 0x00])
+            .g23_unlock()
+            .g23_context(stepped, g23_banks(0x00), 0xFC00);
+    });
+    let mut core = s.core();
+    core.write_core_reg(RegisterId(PC_ID), 0x88Au32.into())
+        .unwrap();
+    core.write_core_reg(RegisterId(PSW_ID), 0x06u32.into())
+        .unwrap();
+    assert_eq!(core.step().unwrap().pc, 0x88D);
+    drop(core);
+    s.assert_done();
+}
+
+#[test]
+fn g23_continue_from_a_fresh_attach_starts_at_the_entry() {
+    let ram: Vec<u8> = (0..0x400).map(|i| (i * 3) as u8).collect();
+    let saved = |a: u32, n: usize| {
+        let o = (a - 0xF_FB00) as usize;
+        ram[o..o + n].to_vec()
+    };
+    let mut vector = vec![0xE6, 0x00, 0xFF, 0xFF];
+    vector.resize(64, 0xFF);
+    let mut started = G23_ATTACHED;
+    started[6..10].copy_from_slice(&[0xE6, 0x00, 0x00, 0x06]);
+    let mut s = Session::fresh_g23(|s| {
+        // The reset vector, read by the routine through the G23's gate: the gate is the
+        // monitor's own memory, so only the program's RAM is saved, and a 90H behind the 94H
+        // says the routine has returned.
+        s.g23_context(G23_ATTACHED, g23_banks(0x00), 0xFC00)
+            .g23_read(0xF_FEF8, &saved(0xF_FEF8, 8))
+            .g23_read(0xF_FB00, &saved(0xF_FB00, 19))
+            .g23_write(0xF_FB00, &read20(0x00000, 64))
+            .g23_write(g23::GATE, &[0xEC, 0x00, 0xFB, 0x0F])
+            .g23_read(0xF_FC10, &saved(0xF_FC10, 64))
+            .exchange(&[0x94], &[0x94])
+            .exchange(&[0x90], &[0x05, 0x01])
+            .g23_read(0xF_FC10, &vector)
+            // RAM back, then the registers a reset would set: PC and PSW in the block, ES in
+            // bank 0's C, CS. Then run, with the step enable clear.
+            .g23_write(0xF_FB00, &saved(0xF_FB00, 19))
+            .g23_write(0xF_FC10, &saved(0xF_FC10, 64))
+            .g23_write(0xF_FEF8, &saved(0xF_FEF8, 8))
+            .g23_write(g23::CONTEXT, &started)
+            .g23_write(0xF_FEFA, &[0x0F])
+            .g23_write(0xF_FFFC, &[0x00])
+            .g23_write(g23::STEP_ENABLE, &[0x00])
+            .exchange(&[0x95], &[0x95]);
+    });
+    s.core().run().unwrap();
     assert!(!s.core().core_halted().unwrap());
     s.assert_done();
 }
