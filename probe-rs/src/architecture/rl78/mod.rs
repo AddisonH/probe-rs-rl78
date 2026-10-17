@@ -31,7 +31,9 @@ use crate::{
 
 mod breakpoints;
 pub mod communication_interface;
+mod comparators;
 mod flash;
+mod isa;
 pub mod protocol;
 pub mod registers;
 pub mod sequences;
@@ -180,11 +182,17 @@ pub struct Rl78CoreState {
     /// B, C, H and L as the monitor reported them at the last entry.
     sync: Sync,
     /// The register file, read lazily after each halt.
-    context: Option<Context>,
+    context: Option<Box<Context>>,
     /// The user's RAM under what the debugger borrowed this halt.
     ram_shadow: RamShadow,
     /// Memory below `F0000H` read this halt, in [`CODE_BLOCK`]s.
     code_cache: BTreeMap<u32, [u8; CODE_BLOCK as usize]>,
+    /// Code flash as the program has it, traps hidden, kept until flash is written.
+    code_image: BTreeMap<u32, [u8; CODE_BLOCK as usize]>,
+    /// A run to a breakpoint by the execution-address comparators.
+    plan: Option<comparators::Plan>,
+    /// A comparator holds an address.
+    armed: bool,
     /// The flash routine is staged at `STUB_BASE`, with the call gate pointing at it.
     flash_resident: bool,
     stub_buf: Option<u32>,
@@ -379,11 +387,11 @@ impl<'probe> Rl78<'probe> {
                 regs[usize::from(PC_ID)],
                 frame[5]
             );
-            self.state.context = Some(Context {
+            self.state.context = Some(Box::new(Context {
                 monitor_sp,
                 regs,
                 dirty: 0,
-            });
+            }));
         }
         Ok(self.state.context.as_mut().expect("loaded above"))
     }
@@ -944,7 +952,11 @@ impl CoreInterface for Rl78<'_> {
             && let Some(sync) = self.interface.poll_stopped()?
         {
             self.entered(sync, HaltReason::Unknown)?;
-            self.classify_stop()?;
+            if self.state.armed {
+                self.plan_stopped()?;
+            } else {
+                self.classify_stop()?;
+            }
         }
         Ok(!self.state.running)
     }
@@ -958,10 +970,15 @@ impl CoreInterface for Rl78<'_> {
     }
 
     fn halt(&mut self, _timeout: Duration) -> Result<CoreInformation, Error> {
+        let planned = self.state.plan.take().is_some();
         // Poll first: if it stopped by itself just now, a halt byte would draw a second sync.
         if !self.core_halted()? {
             let sync = self.interface.halt()?;
             self.entered(sync, HaltReason::Request)?;
+        }
+        self.disarm()?;
+        if planned {
+            self.state.halt_reason = Some(HaltReason::Request);
         }
         Ok(CoreInformation { pc: self.pc()? })
     }
@@ -978,12 +995,20 @@ impl CoreInterface for Rl78<'_> {
             tracing::info!("rl78: continuing from the attach: booting the program");
             return self.reset();
         }
-        if self.step_off_breakpoint()? && self.at_breakpoint()? {
+        // A breakpoint just set, a step's say, may be reached without writing it into flash.
+        let pending = self.state.breakpoints.single_pending();
+        let skip: Vec<u32> = pending.into_iter().collect();
+        if self.step_off_breakpoint(&skip)? && self.at_breakpoint()? {
             // The next instruction is a breakpoint too: the target would trap at once.
             self.state.halt_reason = Some(HaltReason::Breakpoint(crate::BreakpointCause::Hardware));
             return Ok(());
         }
-        self.sync_breakpoints(None)?;
+        if let Some(target) = pending
+            && self.run_to_by_comparators(target)?
+        {
+            return Ok(());
+        }
+        self.sync_breakpoints(&[])?;
         let sync = self.store_context()?;
         self.interface.execute(sync, false)?;
         self.state.running = true;
@@ -997,7 +1022,8 @@ impl CoreInterface for Rl78<'_> {
         // into flash first, so that the program meets them; the user's RAM goes back too, for
         // anything the program keeps across a reset.
         if !self.state.running {
-            self.sync_breakpoints(None)?;
+            self.disarm()?;
+            self.sync_breakpoints(&[])?;
             self.ram_return()?;
         }
         self.interface.reset()?;
@@ -1020,13 +1046,14 @@ impl CoreInterface for Rl78<'_> {
 
     fn step(&mut self) -> Result<CoreInformation, Error> {
         self.require_halted("step")?;
+        self.disarm()?;
         self.state.resume_at_detach = false;
         if self.in_boot_rom() {
             self.boot_to_entry()?;
         } else if self.state.breakpoints.is_idle() {
             self.step_raw()?;
         } else {
-            self.step_over_traps()?;
+            self.step_over_traps(&[])?;
         }
         Ok(CoreInformation { pc: self.pc()? })
     }
@@ -1151,6 +1178,16 @@ impl CoreInterface for Rl78<'_> {
     }
 
     fn debug_core_stop(&mut self) -> Result<(), Error> {
+        if self.state.armed {
+            // An armed comparator would stop the program with no debugger to answer.
+            let running = self.state.running;
+            self.halt(Duration::ZERO)?;
+            if running {
+                let sync = self.store_context()?;
+                self.interface.execute(sync, false)?;
+                self.state.running = true;
+            }
+        }
         self.lift_all_breakpoints()?;
         // A program the attach halted, for a memory read say, runs on as it was found. On Arm a
         // read would not have stopped it at all.

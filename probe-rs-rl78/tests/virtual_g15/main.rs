@@ -1135,3 +1135,143 @@ fn two_breakpoints_in_one_block() {
     );
     assert_eq!(counter(&mut core), n + 1);
 }
+
+/// Booted and stepped to the code at `000DCH`, the boot's trap taken out again: from here on a
+/// breakpoint that goes into flash shows as a block erased.
+fn at_the_code<'s>(g15: &VirtualG15, session: &'s mut Session, code: &[u8]) -> Core<'s> {
+    flash(session, &image(code), false);
+    let mut core = session.core(0).unwrap();
+    core.reset_and_halt(Duration::from_millis(100)).unwrap();
+    assert_eq!(core.step().unwrap().pc, 0xD8);
+    assert_eq!(core.step().unwrap().pc, 0xDC);
+    assert_eq!(peek(g15, 0xD8, 1), [0xCB]);
+    core
+}
+
+/// Run to a breakpoint set for the purpose, as a debugger's step does, and clear it.
+fn run_to(core: &mut Core<'_>, address: u64) {
+    core.set_hw_breakpoint(address).unwrap();
+    core.run().unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    core.clear_hw_breakpoint(address).unwrap();
+    assert_eq!(reg(core, PC_ID), address);
+    assert_eq!(
+        core.status().unwrap(),
+        CoreStatus::Halted(HaltReason::Breakpoint(BreakpointCause::Hardware))
+    );
+}
+
+/// The comparators stop the program four clocks after a matched instruction starts. A run to an
+/// address on straight-line code matches one four clocks back, stops an instruction short of it
+/// and steps the rest: no trap in flash.
+#[test]
+fn comparators_stop_on_straight_line_code() {
+    // dc..e7: nop x12; e8: br $0xdc
+    let mut code = vec![0x00; 12];
+    code.extend([0xEF, 0xF2]);
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    let mut core = at_the_code(&g15, &mut session, &code);
+    let erased = g15.lock().flash().blocks_erased;
+
+    run_to(&mut core, 0xE6);
+    assert_eq!(
+        g15.lock().comparator_stops,
+        1,
+        "one stop, at E5, then a step"
+    );
+    // Round the loop: the BR is on the way.
+    run_to(&mut core, 0xE0);
+    assert_eq!(g15.lock().comparator_stops, 2);
+    assert_eq!(g15.lock().flash().blocks_erased, erased, "no trap in flash");
+
+    // From a breakpoint of the user's, which stays: stepping off its trap leaves the target out.
+    core.set_hw_breakpoint(0xDC).unwrap();
+    core.step().unwrap();
+    assert_eq!(
+        peek(&g15, 0xDC, 1),
+        [0xFF],
+        "the user's trap, put in by the step"
+    );
+    core.run().unwrap();
+    core.wait_for_core_halted(Duration::from_secs(1)).unwrap();
+    assert_eq!(reg(&mut core, PC_ID), 0xDC);
+    let erased = g15.lock().flash().blocks_erased;
+    run_to(&mut core, 0xE6);
+    assert_eq!(g15.lock().comparator_stops, 3);
+    assert_eq!(
+        g15.lock().flash().blocks_erased,
+        erased,
+        "no trap for the step"
+    );
+}
+
+/// f calls itself until B is zero:
+///
+/// ```text
+/// dc: mov b, #3
+/// de: call !f        ; f at e6
+/// e1: incw !0xffe40
+/// e4: br $0xdc
+/// e6: f: dec b
+/// e7: bz $0xec
+/// e9: call !f
+/// ec: ret
+/// ```
+#[rustfmt::skip]
+const RECURSE: [u8; 17] = [
+    0x53, 0x03, 0xFD, 0xE6, 0x00, 0xA2, 0x40, 0xFE, 0xEF, 0xF6,
+    0x93, 0xDD, 0x03, 0xFD, 0xE6, 0x00, 0xD7,
+];
+
+/// A run over a call stops at the call, then puts the comparators on the callee's `RET`s. A
+/// `RET` that comes back somewhere else, from a deeper call, is let run on.
+#[test]
+fn comparators_step_over_a_recursive_call() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    let mut core = at_the_code(&g15, &mut session, &RECURSE);
+    let erased = g15.lock().flash().blocks_erased;
+    assert_eq!(core.step().unwrap().pc, 0xDE);
+    let sp = reg(&mut core, SP_ID);
+
+    run_to(&mut core, 0xE1);
+    assert_eq!(reg(&mut core, SP_ID), sp);
+    assert_eq!(
+        g15.lock().comparator_stops,
+        3,
+        "after the two deeper returns, and the one that counts"
+    );
+    assert_eq!(g15.lock().flash().blocks_erased, erased, "no trap in flash");
+}
+
+/// Out of a function: the target is nowhere it can go before it returns, so the comparators go
+/// on its `RET`, and the stop that counts is the one that leaves its frame.
+#[test]
+fn comparators_step_out_of_a_recursive_function() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    let mut core = at_the_code(&g15, &mut session, &RECURSE);
+    let erased = g15.lock().flash().blocks_erased;
+    assert_eq!(core.step().unwrap().pc, 0xDE);
+    let sp = reg(&mut core, SP_ID);
+    assert_eq!(core.step().unwrap().pc, 0xE6, "into the outermost f");
+    let n = counter(&mut core);
+
+    run_to(&mut core, 0xE1);
+    assert_eq!(reg(&mut core, SP_ID), sp);
+    assert_eq!(counter(&mut core), n, "stopped before the increment");
+    assert_eq!(g15.lock().flash().blocks_erased, erased, "no trap in flash");
+}
+
+/// A target only a conditional branch leads to gets a trap, as before.
+#[test]
+fn comparators_leave_branches_to_traps() {
+    let g15 = VirtualG15::new();
+    let mut session = session(&g15);
+    let mut core = at_the_code(&g15, &mut session, &RECURSE);
+    let erased = g15.lock().flash().blocks_erased;
+    run_to(&mut core, 0xEC);
+    assert_eq!(g15.lock().comparator_stops, 0);
+    assert_eq!(g15.lock().flash().blocks_erased, erased + 1, "a trap");
+}

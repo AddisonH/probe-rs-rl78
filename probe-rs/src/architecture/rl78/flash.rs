@@ -219,6 +219,7 @@ impl Rl78<'_> {
         }
 
         self.state.code_cache.clear();
+        self.state.code_image.clear();
         let operands = params..params + (PARAMS_LEN + data.len()) as u32;
         self.ram_borrow(operands)?;
         let mut buf = vec![0; PARAMS_LEN + data.len()];

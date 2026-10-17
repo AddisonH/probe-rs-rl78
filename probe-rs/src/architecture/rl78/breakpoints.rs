@@ -48,17 +48,29 @@ impl Breakpoints {
         self.units.iter().all(Option::is_none) && self.planted.is_empty()
     }
 
-    fn wanted(&self, skip: Option<u32>) -> impl Iterator<Item = u32> + '_ {
+    fn wanted<'a>(&'a self, skip: &'a [u32]) -> impl Iterator<Item = u32> + 'a {
         self.units
             .iter()
             .chain(std::iter::once(&self.catch))
             .flatten()
             .copied()
-            .filter(move |&a| Some(a) != skip)
+            .filter(move |a| !skip.contains(a))
     }
 
     pub(super) fn is_planted(&self, address: u32) -> bool {
         self.planted.contains_key(&address)
+    }
+
+    /// The one breakpoint in code flash asked for but not in memory, when it is the only one.
+    pub(super) fn single_pending(&self) -> Option<u32> {
+        if self.catch.is_some() {
+            return None;
+        }
+        let mut pending = self
+            .wanted(&[])
+            .filter(|a| !self.planted.contains_key(a) && !in_ram(*a));
+        let first = pending.next()?;
+        pending.next().is_none().then_some(first)
     }
 
     /// Show the program in `data`, read from `address`, rather than the traps standing in it.
@@ -219,7 +231,7 @@ impl Rl78<'_> {
     }
 
     /// Put into memory the traps that are asked for, except at `skip`, and take out the rest.
-    pub(super) fn sync_breakpoints(&mut self, skip: Option<u32>) -> Result<(), Error> {
+    pub(super) fn sync_breakpoints(&mut self, skip: &[u32]) -> Result<(), Error> {
         let want: Vec<u32> = self.state.breakpoints.wanted(skip).collect();
         let planted: Vec<u32> = self.state.breakpoints.planted.keys().copied().collect();
         let mut changes: Vec<u32> = want
@@ -319,28 +331,29 @@ impl Rl78<'_> {
     }
 
     /// Before the target runs from a breakpoint, the instruction under it has to run. Returns
-    /// whether it stepped.
-    pub(super) fn step_off_breakpoint(&mut self) -> Result<bool, Error> {
+    /// whether it stepped. The traps at `skip` stay out of memory.
+    pub(super) fn step_off_breakpoint(&mut self, skip: &[u32]) -> Result<bool, Error> {
         if self.state.breakpoints.is_idle() {
             return Ok(false);
         }
         let pc = self.pc()? as u32;
-        if !self.state.breakpoints.wanted(None).any(|a| a == pc) {
+        if !self.state.breakpoints.wanted(&[]).any(|a| a == pc) {
             return Ok(false);
         }
-        self.step_over_traps()?;
+        self.step_over_traps(skip)?;
         Ok(true)
     }
 
-    /// Step one instruction with every breakpoint in place, the one at the PC included when it
-    /// can be stepped displaced; otherwise that one is lifted for the step.
-    pub(super) fn step_over_traps(&mut self) -> Result<(), Error> {
+    /// Step one instruction with every breakpoint but those at `skip` in place, the one at the
+    /// PC included when it can be stepped displaced; otherwise that one is lifted for the step.
+    pub(super) fn step_over_traps(&mut self, skip: &[u32]) -> Result<(), Error> {
         let pc = self.pc()? as u32;
-        self.sync_breakpoints(None)?;
+        self.sync_breakpoints(skip)?;
         if self.state.breakpoints.is_planted(pc) && self.step_displaced(pc)? {
             return Ok(());
         }
-        self.sync_breakpoints(Some(pc))?;
+        let skip: Vec<u32> = skip.iter().copied().chain([pc]).collect();
+        self.sync_breakpoints(&skip)?;
         self.step_raw()
     }
 
@@ -406,7 +419,7 @@ impl Rl78<'_> {
     /// before executing anything.
     pub(super) fn at_breakpoint(&mut self) -> Result<bool, Error> {
         let pc = self.pc()? as u32;
-        Ok(self.state.breakpoints.wanted(None).any(|a| a == pc))
+        Ok(self.state.breakpoints.wanted(&[]).any(|a| a == pc))
     }
 
     /// Take every trap out of memory, for the end of a session. A running target is halted for
@@ -421,7 +434,7 @@ impl Rl78<'_> {
             self.entered(sync, HaltReason::Request)?;
         }
         self.state.breakpoints.units = [None; UNITS];
-        self.sync_breakpoints(None)?;
+        self.sync_breakpoints(&[])?;
         if was_running {
             let sync = self.store_context()?;
             self.interface.execute(sync, false)?;

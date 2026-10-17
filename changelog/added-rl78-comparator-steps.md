@@ -1,0 +1,1 @@
+RL78: a step over or out of a function, and a run to a breakpoint just set on straight-line code, stop by the execution-address comparators instead of an `FFH` trap, so code flash is not rewritten for them.

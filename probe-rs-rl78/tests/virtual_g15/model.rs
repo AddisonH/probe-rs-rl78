@@ -52,6 +52,10 @@ const OCD_CTRL: u32 = 0xF_FFAF;
 const ENGINE_MODE: u32 = 0xF_0080;
 /// Bit 0 arms a single step.
 const STEP_ENABLE: u32 = 0xF_0085;
+/// The two execution-address comparators, 15 bits each. `0001H` is off.
+const COMPARATORS: [u32; 2] = [0xF_0081, 0xF_0083];
+/// A matched instruction stops the program at the first boundary this many clocks after its start.
+const COMPARATOR_CLOCKS: u64 = 4;
 /// Bit 0 picks the byte the ROM's idle loop writes to `F0080H`. Reads 03H after `CAH`.
 const ENGINE_SELECT: u32 = 0xF_0086;
 const SP: u32 = 0xF_FFF8;
@@ -172,6 +176,10 @@ pub struct Model {
     rrm_data: u16,
     /// Path B commands answered, for tests.
     pub rrm_commands: u32,
+    /// The clock count at the start of an instruction a comparator matched.
+    matched: Option<u64>,
+    /// Stops a comparator caused, for tests.
+    pub comparator_stops: u32,
 }
 
 /// The peripherals the debugger meets: the program's stores to `WDTE` (the register itself keeps
@@ -325,6 +333,8 @@ impl Model {
             calls: 0,
             rrm_data: 0,
             rrm_commands: 0,
+            matched: None,
+            comparator_stops: 0,
         }
     }
 
@@ -514,6 +524,10 @@ impl Model {
         for a in [ENGINE_MODE, STEP_ENABLE, ENGINE_SELECT, OCD_CTRL] {
             self.cpu.mem.b[a as usize] = 0;
         }
+        for a in COMPARATORS {
+            self.cpu.mem.b[a as usize..a as usize + 2].copy_from_slice(&[0x01, 0x00]);
+        }
+        self.matched = None;
         self.wdt_running = self.peek(WDT_OPTION) & 0x10 != 0;
         // WDCS, (2^n - 1)/fIL at 15 kHz; only matters for programs that leave it on.
         let wdcs = [6, 7, 8, 9, 11, 13, 14, 16][usize::from(self.peek(WDT_OPTION) >> 1 & 7)];
@@ -551,6 +565,7 @@ impl Model {
 
     /// The debug interrupt: frame, `SEL RB0`, `PUSH AX`, and path A's sync.
     fn enter_monitor(&mut self, pc: u32) {
+        self.matched = None;
         self.cpu.pc = pc;
         let psw = self.peek(PSW);
         self.push(&[pc as u8, (pc >> 8) as u8, (pc >> 16) as u8 & 0x0F, psw]);
@@ -735,7 +750,22 @@ impl Model {
             self.rom_step(pc);
             return;
         }
+        let start = self.cpu.n.clocks;
+        let stepping = self.peek(STEP_ENABLE) & 1 != 0;
+        if !stepping && self.matched.is_none() && self.comparator_matches(pc) {
+            self.matched = Some(start);
+        }
         let stop = self.cpu.step();
+        if let Some(at) = self.matched
+            && stop.is_none()
+            && self.cpu.n.clocks - at >= COMPARATOR_CLOCKS
+        {
+            self.matched = None;
+            self.comparator_stops += 1;
+            let pc = self.cpu.pc;
+            self.enter_monitor(pc);
+            return;
+        }
         let writes = std::mem::take(&mut self.peripherals().wdte_writes);
         for v in writes {
             self.wdte_written(v);
@@ -759,6 +789,13 @@ impl Model {
             Some(Stop::Exit(_)) => self.mode = Mode::Sleeping,
             Some(stop) => panic!("virtual G15: the program stopped: {stop:?} after PC {pc:05X}H"),
         }
+    }
+
+    fn comparator_matches(&self, pc: u32) -> bool {
+        COMPARATORS.iter().any(|&a| {
+            let at = u32::from(self.peek(a)) | u32::from(self.peek(a + 1) & 0x7F) << 8;
+            at != 0x0001 && at == pc
+        })
     }
 
     /// The ROM's idle loop (0EFFDFH-0EFFFCH), one instruction at a time.

@@ -1,0 +1,1225 @@
+mnemonic	operands	opcode	clocks	clocks_flash	clocks_s2	clocks_s1	clocks_flash_s2	clocks_flash_s1
+MOV	X, #byte	50 data	1		1	1		
+MOV	A, #byte	51 data	1		1	1		
+MOV	C, #byte	52 data	1		1	1		
+MOV	B, #byte	53 data	1		1	1		
+MOV	E, #byte	54 data	1		1	1		
+MOV	D, #byte	55 data	1		1	1		
+MOV	L, #byte	56 data	1		1	1		
+MOV	H, #byte	57 data	1		1	1		
+MOV	saddr, #byte	CD saddr data	1		1	1		
+MOV	sfr, #byte	CE sfr data	1		1	1		
+MOV	!addr16, #byte	CF adrl adrh data	1		1	1		
+MOV	A, X	60	1		1	1		
+MOV	A, C	62	1		1	1		
+MOV	A, B	63	1		1	1		
+MOV	A, E	64	1		1	1		
+MOV	A, D	65	1		1	1		
+MOV	A, L	66	1		1	1		
+MOV	A, H	67	1		1	1		
+MOV	X, A	70	1		1	1		
+MOV	C, A	72	1		1	1		
+MOV	B, A	73	1		1	1		
+MOV	E, A	74	1		1	1		
+MOV	D, A	75	1		1	1		
+MOV	L, A	76	1		1	1		
+MOV	H, A	77	1		1	1		
+MOV	A, saddr	8D saddr	1		1	1		
+MOV	saddr, A	9D saddr	1		1	1		
+MOV	A, sfr	8E sfr	1		1	1		
+MOV	sfr, A	9E sfr	1		1	1		
+MOV	A, !addr16	8F adrl adrh	1	4	1	1	4	4
+MOV	!addr16, A	9F adrl adrh	1		1	1		
+MOV	PSW, #byte	CE FA data	3		3	3		
+MOV	A, PSW	8E FA	1		1	1		
+MOV	PSW, A	9E FA	3		3	3		
+MOV	ES, #byte	41 data	1		1	1		
+MOV	ES, saddr	61 B8 saddr	1		1	1		
+MOV	A, ES	8E FD	1		1	1		
+MOV	ES, A	9E FD	1		1	1		
+MOV	CS, #byte	CE FC data	1		1	1		
+MOV	A, CS	8E FC	1		1	1		
+MOV	CS, A	9E FC	1		1	1		
+MOV	A, [DE]	89	1	4	1	1	4	4
+MOV	[DE], A	99	1		1	1		
+MOV	[DE+byte], #byte	CA adr data	1		1	1		
+MOV	A, [DE+byte]	8A adr	1	4	1	1	4	4
+MOV	[DE+byte], A	9A adr	1		1	1		
+MOV	A, [HL]	8B	1	4	1	1	4	4
+MOV	[HL], A	9B	1		1	1		
+MOV	[HL+byte], #byte	CC adr data	1		1	1		
+MOV	A, [HL+byte]	8C adr	1	4	1	1	4	4
+MOV	[HL+byte], A	9C adr	1		1	1		
+MOV	A, [HL+B]	61 C9	1	4	1	1	4	4
+MOV	[HL+B], A	61 D9	1		1	1		
+MOV	A, [HL+C]	61 E9	1	4	1	1	4	4
+MOV	[HL+C], A	61 F9	1		1	1		
+MOV	word[B], #byte	19 adrl adrh data	1		1	1		
+MOV	A, word[B]	09 adrl adrh	1	4	1	1	4	4
+MOV	word[B], A	18 adrl adrh	1		1	1		
+MOV	word[C], #byte	38 adrl adrh data	1		1	1		
+MOV	A, word[C]	29 adrl adrh	1	4	1	1	4	4
+MOV	word[C], A	28 adrl adrh	1		1	1		
+MOV	word[BC], #byte	39 adrl adrh data	1		1	1		
+MOV	A, word[BC]	49 adrl adrh	1	4	1	1	4	4
+MOV	word[BC], A	48 adrl adrh	1		1	1		
+MOV	[SP+byte], #byte	C8 adr data	1		1	1		
+MOV	A, [SP+byte]	88 adr	1		1	1		
+MOV	[SP+byte], A	98 adr	1		1	1		
+MOV	B, saddr	E8 saddr	1		1	1		
+MOV	B, !addr16	E9 adrl adrh	1	4	1	1	4	4
+MOV	C, saddr	F8 saddr	1		1	1		
+MOV	C, !addr16	F9 adrl adrh	1	4	1	1	4	4
+MOV	X, saddr	D8 saddr	1		1	1		
+MOV	X, !addr16	D9 adrl adrh	1	4	1	1	4	4
+MOV	ES:!addr16, #byte	11 CF adrl adrh data	2		2	2		
+MOV	A, ES:!addr16	11 8F adrl adrh	2	5	2	2	5	5
+MOV	ES:!addr16, A	11 9F adrl adrh	2		2	2		
+MOV	A, ES:[DE]	11 89	2	5	2	2	5	5
+MOV	ES:[DE], A	11 99	2		2	2		
+MOV	ES:[DE+byte], #byte	11 CA adr data	2		2	2		
+MOV	A, ES:[DE+byte]	11 8A adr	2	5	2	2	5	5
+MOV	ES:[DE+byte], A	11 9A adr	2		2	2		
+MOV	A, ES:[HL]	11 8B	2	5	2	2	5	5
+MOV	ES:[HL], A	11 9B	2		2	2		
+MOV	ES:[HL+byte], #byte	11 CC adr data	2		2	2		
+MOV	A, ES:[HL+byte]	11 8C adr	2	5	2	2	5	5
+MOV	ES:[HL+byte], A	11 9C adr	2		2	2		
+MOV	A, ES:[HL+B]	11 61 C9	2	5	2	2	5	5
+MOV	ES:[HL+B], A	11 61 D9	2		2	2		
+MOV	A, ES:[HL+C]	11 61 E9	2	5	2	2	5	5
+MOV	ES:[HL+C], A	11 61 F9	2		2	2		
+MOV	ES:word[B], #byte	11 19 adrl adrh data	2		2	2		
+MOV	A, ES:word[B]	11 09 adrl adrh	2	5	2	2	5	5
+MOV	ES:word[B], A	11 18 adrl adrh	2		2	2		
+MOV	ES:word[C], #byte	11 38 adrl adrh data	2		2	2		
+MOV	A, ES:word[C]	11 29 adrl adrh	2	5	2	2	5	5
+MOV	ES:word[C], A	11 28 adrl adrh	2		2	2		
+MOV	ES:word[BC], #byte	11 39 adrl adrh data	2		2	2		
+MOV	A, ES:word[BC]	11 49 adrl adrh	2	5	2	2	5	5
+MOV	ES:word[BC], A	11 48 adrl adrh	2		2	2		
+MOV	B, ES:!addr16	11 E9 adrl adrh	2	5	2	2	5	5
+MOV	C, ES:!addr16	11 F9 adrl adrh	2	5	2	2	5	5
+MOV	X, ES:!addr16	11 D9 adrl adrh	2	5	2	2	5	5
+XCH	A, X	08	1		1	1		
+XCH	A, C	61 8A	1		1	1		
+XCH	A, B	61 8B	1		1	1		
+XCH	A, E	61 8C	1		1	1		
+XCH	A, D	61 8D	1		1	1		
+XCH	A, L	61 8E	1		1	1		
+XCH	A, H	61 8F	1		1	1		
+XCH	A, saddr	61 A8 saddr	2		2	2		
+XCH	A, sfr	61 AB sfr	2		2	2		
+XCH	A, !addr16	61 AA adrl adrh	2		2	2		
+XCH	A, [DE]	61 AE	2		2	2		
+XCH	A, [DE+byte]	61 AF adr	2		2	2		
+XCH	A, [HL]	61 AC	2		2	2		
+XCH	A, [HL+byte]	61 AD adr	2		2	2		
+XCH	A, [HL+B]	61 B9	2		2	2		
+XCH	A, [HL+C]	61 A9	2		2	2		
+XCH	A, ES:!addr16	11 61 AA adrl adrh	3		3	3		
+XCH	A, ES:[DE]	11 61 AE	3		3	3		
+XCH	A, ES:[DE+byte]	11 61 AF adr	3		3	3		
+XCH	A, ES:[HL]	11 61 AC	3		3	3		
+XCH	A, ES:[HL+byte]	11 61 AD adr	3		3	3		
+XCH	A, ES:[HL+B]	11 61 B9	3		3	3		
+XCH	A, ES:[HL+C]	11 61 A9	3		3	3		
+ONEB	A	E1	1		1	1		
+ONEB	X	E0	1		1	1		
+ONEB	B	E3	1		1	1		
+ONEB	C	E2	1		1	1		
+ONEB	saddr	E4 saddr	1		1	1		
+ONEB	!addr16	E5 adrl adrh	1		1	1		
+ONEB	ES:!addr16	11 E5 adrl adrh	2		2	2		
+CLRB	A	F1	1		1	1		
+CLRB	X	F0	1		1	1		
+CLRB	B	F3	1		1	1		
+CLRB	C	F2	1		1	1		
+CLRB	saddr	F4 saddr	1		1	1		
+CLRB	!addr16	F5 adrl adrh	1		1	1		
+CLRB	ES:!addr16	11 F5 adrl adrh	2		2	2		
+MOVS	[HL+byte], X	61 CE adr	1		1	1		
+MOVS	ES:[HL+byte], X	11 61 CE adr	2		2	2		
+MOVW	AX, #word	30 datal datah	1		1	2		
+MOVW	BC, #word	32 datal datah	1		1	2		
+MOVW	DE, #word	34 datal datah	1		1	2		
+MOVW	HL, #word	36 datal datah	1		1	2		
+MOVW	saddrp, #word	C9 saddr datal datah	1		1	2		
+MOVW	sfrp, #word	CB sfr datal datah	1		1	2		
+MOVW	AX, saddrp	AD saddr	1		1	2		
+MOVW	saddrp, AX	BD saddr	1		1	2		
+MOVW	AX, sfrp	AE sfr	1		1	2		
+MOVW	sfrp, AX	BE sfr	1		1	2		
+MOVW	AX, BC	13	1		1	2		
+MOVW	AX, DE	15	1		1	2		
+MOVW	AX, HL	17	1		1	2		
+MOVW	BC, AX	12	1		1	2		
+MOVW	DE, AX	14	1		1	2		
+MOVW	HL, AX	16	1		1	2		
+MOVW	AX, !addr16	AF adrl adrh	1	4	1	2	4	5
+MOVW	!addr16, AX	BF adrl adrh	1		1	2		
+MOVW	AX, [DE]	A9	1	4	1	2	4	5
+MOVW	[DE], AX	B9	1		1	2		
+MOVW	AX, [DE+byte]	AA adr	1	4	1	2	4	5
+MOVW	[DE+byte], AX	BA adr	1		1	2		
+MOVW	AX, [HL]	AB	1	4	1	2	4	5
+MOVW	[HL], AX	BB	1		1	2		
+MOVW	AX, [HL+byte]	AC adr	1	4	1	2	4	5
+MOVW	[HL+byte], AX	BC adr	1		1	2		
+MOVW	AX, word[B]	59 adrl adrh	1	4	1	2	4	5
+MOVW	word[B], AX	58 adrl adrh	1		1	2		
+MOVW	AX, word[C]	69 adrl adrh	1	4	1	2	4	5
+MOVW	word[C], AX	68 adrl adrh	1		1	2		
+MOVW	AX, word[BC]	79 adrl adrh	1	4	1	2	4	5
+MOVW	word[BC], AX	78 adrl adrh	1		1	2		
+MOVW	AX, [SP+byte]	A8 adr	1		1	2		
+MOVW	[SP+byte], AX	B8 adr	1		1	2		
+MOVW	BC, saddrp	DA saddr	1		1	2		
+MOVW	BC, !addr16	DB adrl adrh	1	4	1	2	4	5
+MOVW	DE, saddrp	EA saddr	1		1	2		
+MOVW	DE, !addr16	EB adrl adrh	1	4	1	2	4	5
+MOVW	HL, saddrp	FA saddr	1		1	2		
+MOVW	HL, !addr16	FB adrl adrh	1	4	1	2	4	5
+MOVW	AX, ES:!addr16	11 AF adrl adrh	2	5	2	2	5	6
+MOVW	ES:!addr16, AX	11 BF adrl adrh	2		2	2		
+MOVW	AX, ES:[DE]	11 A9	2	5	2	3	5	6
+MOVW	ES:[DE], AX	11 B9	2		2	3		
+MOVW	AX, ES:[DE+byte]	11 AA adr	2	5	2	3	5	6
+MOVW	ES:[DE+byte], AX	11 BA adr	2		2	3		
+MOVW	AX, ES:[HL]	11 AB	2	5	2	3	5	6
+MOVW	ES:[HL], AX	11 BB	2		2	3		
+MOVW	AX, ES:[HL+byte]	11 AC adr	2	5	2	3	5	6
+MOVW	ES:[HL+byte], AX	11 BC adr	2		2	3		
+MOVW	AX, ES:word[B]	11 59 adrl adrh	2	5	2	3	5	6
+MOVW	ES:word[B], AX	11 58 adrl adrh	2		2	3		
+MOVW	AX, ES:word[C]	11 69 adrl adrh	2	5	2	3	5	6
+MOVW	ES:word[C], AX	11 68 adrl adrh	2		2	3		
+MOVW	AX, ES:word[BC]	11 79 adrl adrh	2	5	2	3	5	6
+MOVW	ES:word[BC], AX	11 78 adrl adrh	2		2	3		
+MOVW	BC, ES:!addr16	11 DB adrl adrh	2	5	2	3	5	6
+MOVW	DE, ES:!addr16	11 EB adrl adrh	2	5	2	3	5	6
+MOVW	HL, ES:!addr16	11 FB adrl adrh	2	5	2	3	5	6
+XCHW	AX, BC	33	1		1	2		
+XCHW	AX, DE	35	1		1	2		
+XCHW	AX, HL	37	1		1	2		
+ONEW	AX	E6	1		1	2		
+ONEW	BC	E7	1		1	2		
+CLRW	AX	F6	1		1	2		
+CLRW	BC	F7	1		1	2		
+ADD	A, #byte	0C data	1		1	1		
+ADD	saddr, #byte	0A saddr data	2		2	2		
+ADD	A, X	61 08	1		1	1		
+ADD	A, C	61 0A	1		1	1		
+ADD	A, B	61 0B	1		1	1		
+ADD	A, E	61 0C	1		1	1		
+ADD	A, D	61 0D	1		1	1		
+ADD	A, L	61 0E	1		1	1		
+ADD	A, H	61 0F	1		1	1		
+ADD	X, A	61 00	1		1	1		
+ADD	A, A	61 01	1		1	1		
+ADD	C, A	61 02	1		1	1		
+ADD	B, A	61 03	1		1	1		
+ADD	E, A	61 04	1		1	1		
+ADD	D, A	61 05	1		1	1		
+ADD	L, A	61 06	1		1	1		
+ADD	H, A	61 07	1		1	1		
+ADD	A, saddr	0B saddr	1		1	1		
+ADD	A, !addr16	0F adrl adrh	1	4	1	1	4	4
+ADD	A, [HL]	0D	1	4	1	1	4	4
+ADD	A, [HL+byte]	0E adr	1	4	1	1	4	4
+ADD	A, [HL+B]	61 80	1	4	1	1	4	4
+ADD	A, [HL+C]	61 82	1	4	1	1	4	4
+ADD	A, ES:!addr16	11 0F adrl adrh	2	5	2	2	5	5
+ADD	A, ES:[HL]	11 0D	2	5	2	2	5	5
+ADD	A, ES:[HL+byte]	11 0E adr	2	5	2	2	5	5
+ADD	A, ES:[HL+B]	11 61 80	2	5	2	2	5	5
+ADD	A, ES:[HL+C]	11 61 82	2	5	2	2	5	5
+ADDC	A, #byte	1C data	1		1	1		
+ADDC	saddr, #byte	1A saddr data	2		2	2		
+ADDC	A, X	61 18	1		1	1		
+ADDC	A, C	61 1A	1		1	1		
+ADDC	A, B	61 1B	1		1	1		
+ADDC	A, E	61 1C	1		1	1		
+ADDC	A, D	61 1D	1		1	1		
+ADDC	A, L	61 1E	1		1	1		
+ADDC	A, H	61 1F	1		1	1		
+ADDC	X, A	61 10	1		1	1		
+ADDC	A, A	61 11	1		1	1		
+ADDC	C, A	61 12	1		1	1		
+ADDC	B, A	61 13	1		1	1		
+ADDC	E, A	61 14	1		1	1		
+ADDC	D, A	61 15	1		1	1		
+ADDC	L, A	61 16	1		1	1		
+ADDC	H, A	61 17	1		1	1		
+ADDC	A, saddr	1B saddr	1		1	1		
+ADDC	A, !addr16	1F adrl adrh	1	4	1	1	4	4
+ADDC	A, [HL]	1D	1	4	1	1	4	4
+ADDC	A, [HL+byte]	1E adr	1	4	1	1	4	4
+ADDC	A, [HL+B]	61 90	1	4	1	1	4	4
+ADDC	A, [HL+C]	61 92	1	4	1	1	4	4
+ADDC	A, ES:!addr16	11 1F adrl adrh	2	5	2	2	5	5
+ADDC	A, ES:[HL]	11 1D	2	5	2	2	5	5
+ADDC	A, ES:[HL+byte]	11 1E adr	2	5	2	2	5	5
+ADDC	A, ES:[HL+B]	11 61 90	2	5	2	2	5	5
+ADDC	A, ES:[HL+C]	11 61 92	2	5	2	2	5	5
+SUB	A, #byte	2C data	1		1	1		
+SUB	saddr, #byte	2A saddr data	2		2	2		
+SUB	A, X	61 28	1		1	1		
+SUB	A, C	61 2A	1		1	1		
+SUB	A, B	61 2B	1		1	1		
+SUB	A, E	61 2C	1		1	1		
+SUB	A, D	61 2D	1		1	1		
+SUB	A, L	61 2E	1		1	1		
+SUB	A, H	61 2F	1		1	1		
+SUB	X, A	61 20	1		1	1		
+SUB	A, A	61 21	1		1	1		
+SUB	C, A	61 22	1		1	1		
+SUB	B, A	61 23	1		1	1		
+SUB	E, A	61 24	1		1	1		
+SUB	D, A	61 25	1		1	1		
+SUB	L, A	61 26	1		1	1		
+SUB	H, A	61 27	1		1	1		
+SUB	A, saddr	2B saddr	1		1	1		
+SUB	A, !addr16	2F adrl adrh	1	4	1	1	4	4
+SUB	A, [HL]	2D	1	4	1	1	4	4
+SUB	A, [HL+byte]	2E adr	1	4	1	1	4	4
+SUB	A, [HL+B]	61 A0	1	4	1	1	4	4
+SUB	A, [HL+C]	61 A2	1	4	1	1	4	4
+SUB	A, ES:!addr16	11 2F adrl adrh	2	5	2	2	5	5
+SUB	A, ES:[HL]	11 2D	2	5	2	2	5	5
+SUB	A, ES:[HL+byte]	11 2E adr	2	5	2	2	5	5
+SUB	A, ES:[HL+B]	11 61 A0	2	5	2	2	5	5
+SUB	A, ES:[HL+C]	11 61 A2	2	5	2	2	5	5
+SUBC	A, #byte	3C data	1		1	1		
+SUBC	saddr, #byte	3A saddr data	2		2	2		
+SUBC	A, X	61 38	1		1	1		
+SUBC	A, C	61 3A	1		1	1		
+SUBC	A, B	61 3B	1		1	1		
+SUBC	A, E	61 3C	1		1	1		
+SUBC	A, D	61 3D	1		1	1		
+SUBC	A, L	61 3E	1		1	1		
+SUBC	A, H	61 3F	1		1	1		
+SUBC	X, A	61 30	1		1	1		
+SUBC	A, A	61 31	1		1	1		
+SUBC	C, A	61 32	1		1	1		
+SUBC	B, A	61 33	1		1	1		
+SUBC	E, A	61 34	1		1	1		
+SUBC	D, A	61 35	1		1	1		
+SUBC	L, A	61 36	1		1	1		
+SUBC	H, A	61 37	1		1	1		
+SUBC	A, saddr	3B saddr	1		1	1		
+SUBC	A, !addr16	3F adrl adrh	1	4	1	1	4	4
+SUBC	A, [HL]	3D	1	4	1	1	4	4
+SUBC	A, [HL+byte]	3E adr	1	4	1	1	4	4
+SUBC	A, [HL+B]	61 B0	1	4	1	1	4	4
+SUBC	A, [HL+C]	61 B2	1	4	1	1	4	4
+SUBC	A, ES:!addr16	11 3F adrl adrh	2	5	2	2	5	5
+SUBC	A, ES:[HL]	11 3D	2	5	2	2	5	5
+SUBC	A, ES:[HL+byte]	11 3E adr	2	5	2	2	5	5
+SUBC	A, ES:[HL+B]	11 61 B0	2	5	2	2	5	5
+SUBC	A, ES:[HL+C]	11 61 B2	2	5	2	2	5	5
+AND	A, #byte	5C data	1		1	1		
+AND	saddr, #byte	5A saddr data	2		2	2		
+AND	A, X	61 58	1		1	1		
+AND	A, C	61 5A	1		1	1		
+AND	A, B	61 5B	1		1	1		
+AND	A, E	61 5C	1		1	1		
+AND	A, D	61 5D	1		1	1		
+AND	A, L	61 5E	1		1	1		
+AND	A, H	61 5F	1		1	1		
+AND	X, A	61 50	1		1	1		
+AND	A, A	61 51	1		1	1		
+AND	C, A	61 52	1		1	1		
+AND	B, A	61 53	1		1	1		
+AND	E, A	61 54	1		1	1		
+AND	D, A	61 55	1		1	1		
+AND	L, A	61 56	1		1	1		
+AND	H, A	61 57	1		1	1		
+AND	A, saddr	5B saddr	1		1	1		
+AND	A, !addr16	5F adrl adrh	1	4	1	1	4	4
+AND	A, [HL]	5D	1	4	1	1	4	4
+AND	A, [HL+byte]	5E adr	1	4	1	1	4	4
+AND	A, [HL+B]	61 D0	1	4	1	1	4	4
+AND	A, [HL+C]	61 D2	1	4	1	1	4	4
+AND	A, ES:!addr16	11 5F adrl adrh	2	5	2	2	5	5
+AND	A, ES:[HL]	11 5D	2	5	2	2	5	5
+AND	A, ES:[HL+byte]	11 5E adr	2	5	2	2	5	5
+AND	A, ES:[HL+B]	11 61 D0	2	5	2	2	5	5
+AND	A, ES:[HL+C]	11 61 D2	2	5	2	2	5	5
+OR	A, #byte	6C data	1		1	1		
+OR	saddr, #byte	6A saddr data	2		2	2		
+OR	A, X	61 68	1		1	1		
+OR	A, C	61 6A	1		1	1		
+OR	A, B	61 6B	1		1	1		
+OR	A, E	61 6C	1		1	1		
+OR	A, D	61 6D	1		1	1		
+OR	A, L	61 6E	1		1	1		
+OR	A, H	61 6F	1		1	1		
+OR	X, A	61 60	1		1	1		
+OR	A, A	61 61	1		1	1		
+OR	C, A	61 62	1		1	1		
+OR	B, A	61 63	1		1	1		
+OR	E, A	61 64	1		1	1		
+OR	D, A	61 65	1		1	1		
+OR	L, A	61 66	1		1	1		
+OR	H, A	61 67	1		1	1		
+OR	A, saddr	6B saddr	1		1	1		
+OR	A, !addr16	6F adrl adrh	1	4	1	1	4	4
+OR	A, [HL]	6D	1	4	1	1	4	4
+OR	A, [HL+byte]	6E adr	1	4	1	1	4	4
+OR	A, [HL+B]	61 E0	1	4	1	1	4	4
+OR	A, [HL+C]	61 E2	1	4	1	1	4	4
+OR	A, ES:!addr16	11 6F adrl adrh	2	5	2	2	5	5
+OR	A, ES:[HL]	11 6D	2	5	2	2	5	5
+OR	A, ES:[HL+byte]	11 6E adr	2	5	2	2	5	5
+OR	A, ES:[HL+B]	11 61 E0	2	5	2	2	5	5
+OR	A, ES:[HL+C]	11 61 E2	2	5	2	2	5	5
+XOR	A, #byte	7C data	1		1	1		
+XOR	saddr, #byte	7A saddr data	2		2	2		
+XOR	A, X	61 78	1		1	1		
+XOR	A, C	61 7A	1		1	1		
+XOR	A, B	61 7B	1		1	1		
+XOR	A, E	61 7C	1		1	1		
+XOR	A, D	61 7D	1		1	1		
+XOR	A, L	61 7E	1		1	1		
+XOR	A, H	61 7F	1		1	1		
+XOR	X, A	61 70	1		1	1		
+XOR	A, A	61 71	1		1	1		
+XOR	C, A	61 72	1		1	1		
+XOR	B, A	61 73	1		1	1		
+XOR	E, A	61 74	1		1	1		
+XOR	D, A	61 75	1		1	1		
+XOR	L, A	61 76	1		1	1		
+XOR	H, A	61 77	1		1	1		
+XOR	A, saddr	7B saddr	1		1	1		
+XOR	A, !addr16	7F adrl adrh	1	4	1	1	4	4
+XOR	A, [HL]	7D	1	4	1	1	4	4
+XOR	A, [HL+byte]	7E adr	1	4	1	1	4	4
+XOR	A, [HL+B]	61 F0	1	4	1	1	4	4
+XOR	A, [HL+C]	61 F2	1	4	1	1	4	4
+XOR	A, ES:!addr16	11 7F adrl adrh	2	5	2	2	5	5
+XOR	A, ES:[HL]	11 7D	2	5	2	2	5	5
+XOR	A, ES:[HL+byte]	11 7E adr	2	5	2	2	5	5
+XOR	A, ES:[HL+B]	11 61 F0	2	5	2	2	5	5
+XOR	A, ES:[HL+C]	11 61 F2	2	5	2	2	5	5
+CMP	A, #byte	4C data	1		1	1		
+CMP	saddr, #byte	4A saddr data	1		1	1		
+CMP	A, X	61 48	1		1	1		
+CMP	A, C	61 4A	1		1	1		
+CMP	A, B	61 4B	1		1	1		
+CMP	A, E	61 4C	1		1	1		
+CMP	A, D	61 4D	1		1	1		
+CMP	A, L	61 4E	1		1	1		
+CMP	A, H	61 4F	1		1	1		
+CMP	X, A	61 40	1		1	1		
+CMP	A, A	61 41	1		1	1		
+CMP	C, A	61 42	1		1	1		
+CMP	B, A	61 43	1		1	1		
+CMP	E, A	61 44	1		1	1		
+CMP	D, A	61 45	1		1	1		
+CMP	L, A	61 46	1		1	1		
+CMP	H, A	61 47	1		1	1		
+CMP	A, saddr	4B saddr	1		1	1		
+CMP	A, !addr16	4F adrl adrh	1	4	1	1	4	4
+CMP	A, [HL]	4D	1	4	1	1	4	4
+CMP	A, [HL+byte]	4E adr	1	4	1	1	4	4
+CMP	A, [HL+B]	61 C0	1	4	1	1	4	4
+CMP	A, [HL+C]	61 C2	1	4	1	1	4	4
+CMP	!addr16, #byte	40 adrl adrh data	1	4	1	1	4	4
+CMP	A, ES:!addr16	11 4F adrl adrh	2	5	2	2	5	5
+CMP	A, ES:[HL]	11 4D	2	5	2	2	5	5
+CMP	A, ES:[HL+byte]	11 4E adr	2	5	2	2	5	5
+CMP	A, ES:[HL+B]	11 61 C0	2	5	2	2	5	5
+CMP	A, ES:[HL+C]	11 61 C2	2	5	2	2	5	5
+CMP	ES:!addr16, #byte	11 40 adrl adrh data	2	5	2	2	5	5
+CMP0	A	D1	1		1	1		
+CMP0	X	D0	1		1	1		
+CMP0	B	D3	1		1	1		
+CMP0	C	D2	1		1	1		
+CMP0	saddr	D4 saddr	1		1	1		
+CMP0	!addr16	D5 adrl adrh	1	4	1	1	4	4
+CMP0	ES:!addr16	11 D5 adrl adrh	2	5	2	2	5	5
+CMPS	X, [HL+byte]	61 DE adr	1	4	1	1	4	4
+CMPS	X, ES:[HL+byte]	11 61 DE adr	2	5	2	2	5	5
+ADDW	AX, #word	04 datal datah	1		1	2		
+ADDW	AX, AX	01	1		1	2		
+ADDW	AX, BC	03	1		1	2		
+ADDW	AX, DE	05	1		1	2		
+ADDW	AX, HL	07	1		1	2		
+ADDW	AX, saddrp	06 saddr	1		1	2		
+ADDW	AX, !addr16	02 adrl adrh	1	4	1	2	4	5
+ADDW	AX, [HL+byte]	61 09 adr	1	4	1	2	4	5
+ADDW	AX, ES:!addr16	11 02 adrl adrh	2	5	2	3	5	6
+ADDW	AX, ES:[HL+byte]	11 61 09 adr	2	5	2	3	5	6
+SUBW	AX, #word	24 datal datah	1		1	2		
+SUBW	AX, BC	23	1		1	2		
+SUBW	AX, DE	25	1		1	2		
+SUBW	AX, HL	27	1		1	2		
+SUBW	AX, saddrp	26 saddr	1		1	2		
+SUBW	AX, !addr16	22 adrl adrh	1	4	1	2	4	5
+SUBW	AX, [HL+byte]	61 29 adr	1	4	1	2	4	5
+SUBW	AX, ES:!addr16	11 22 adrl adrh	2	5	2	3	5	6
+SUBW	AX, ES:[HL+byte]	11 61 29 adr	2	5	2	3	5	6
+CMPW	AX, #word	44 datal datah	1		1	2		
+CMPW	AX, BC	43	1		1	2		
+CMPW	AX, DE	45	1		1	2		
+CMPW	AX, HL	47	1		1	2		
+CMPW	AX, saddrp	46 saddr	1		1	2		
+CMPW	AX, !addr16	42 adrl adrh	1	4	1	2	4	5
+CMPW	AX, [HL+byte]	61 49 adr	1	4	1	2	4	5
+CMPW	AX, ES:!addr16	11 42 adrl adrh	2	5	2	3	5	6
+CMPW	AX, ES:[HL+byte]	11 61 49 adr	2	5	2	3	5	6
+MULU	X	D6	1		1	2		
+MULHU		CE FB 01	2					
+MULH		CE FB 02	2					
+DIVHU		CE FB 03	9					
+DIVWU		CE FB 0B	17					
+MACHU		CE FB 05	3					
+MACH		CE FB 06	3					
+INC	X	80	1		1	1		
+INC	A	81	1		1	1		
+INC	C	82	1		1	1		
+INC	B	83	1		1	1		
+INC	E	84	1		1	1		
+INC	D	85	1		1	1		
+INC	L	86	1		1	1		
+INC	H	87	1		1	1		
+INC	saddr	A4 saddr	2		2	2		
+INC	!addr16	A0 adrl adrh	2		2	2		
+INC	[HL+byte]	61 59 adr	2		2	2		
+INC	ES:!addr16	11 A0 adrl adrh	3		3	3		
+INC	ES:[HL+byte]	11 61 59 adr	3		3	3		
+DEC	X	90	1		1	1		
+DEC	A	91	1		1	1		
+DEC	C	92	1		1	1		
+DEC	B	93	1		1	1		
+DEC	E	94	1		1	1		
+DEC	D	95	1		1	1		
+DEC	L	96	1		1	1		
+DEC	H	97	1		1	1		
+DEC	saddr	B4 saddr	2		2	2		
+DEC	!addr16	B0 adrl adrh	2		2	2		
+DEC	[HL+byte]	61 69 adr	2		2	2		
+DEC	ES:!addr16	11 B0 adrl adrh	3		3	3		
+DEC	ES:[HL+byte]	11 61 69 adr	3		3	3		
+INCW	AX	A1	1		1	2		
+INCW	BC	A3	1		1	2		
+INCW	DE	A5	1		1	2		
+INCW	HL	A7	1		1	2		
+INCW	saddrp	A6 saddr	2		2	4		
+INCW	!addr16	A2 adrl adrh	2		2	4		
+INCW	[HL+byte]	61 79 adr	2		2	4		
+INCW	ES:!addr16	11 A2 adrl adrh	3		3	5		
+INCW	ES:[HL+byte]	11 61 79 adr	3		3	5		
+DECW	AX	B1	1		1	2		
+DECW	BC	B3	1		1	2		
+DECW	DE	B5	1		1	2		
+DECW	HL	B7	1		1	2		
+DECW	saddrp	B6 saddr	2		2	4		
+DECW	!addr16	B2 adrl adrh	2		2	4		
+DECW	[HL+byte]	61 89 adr	2		2	4		
+DECW	ES:!addr16	11 B2 adrl adrh	3		3	5		
+DECW	ES:[HL+byte]	11 61 89 adr	3		3	5		
+SHR	A, 1	31 1A	1		1	1		
+SHR	A, 2	31 2A	1		1	1		
+SHR	A, 3	31 3A	1		1	1		
+SHR	A, 4	31 4A	1		1	1		
+SHR	A, 5	31 5A	1		1	1		
+SHR	A, 6	31 6A	1		1	1		
+SHR	A, 7	31 7A	1		1	1		
+SHRW	AX, 1	31 1E	1		1	1		
+SHRW	AX, 2	31 2E	1		1	1		
+SHRW	AX, 3	31 3E	1		1	1		
+SHRW	AX, 4	31 4E	1		1	1		
+SHRW	AX, 5	31 5E	1		1	1		
+SHRW	AX, 6	31 6E	1		1	1		
+SHRW	AX, 7	31 7E	1		1	1		
+SHRW	AX, 8	31 8E	1		1	1		
+SHRW	AX, 9	31 9E	1		1	1		
+SHRW	AX, 10	31 AE	1		1	1		
+SHRW	AX, 11	31 BE	1		1	1		
+SHRW	AX, 12	31 CE	1		1	1		
+SHRW	AX, 13	31 DE	1		1	1		
+SHRW	AX, 14	31 EE	1		1	1		
+SHRW	AX, 15	31 FE	1		1	1		
+SHL	A, 1	31 19	1		1	1		
+SHL	A, 2	31 29	1		1	1		
+SHL	A, 3	31 39	1		1	1		
+SHL	A, 4	31 49	1		1	1		
+SHL	A, 5	31 59	1		1	1		
+SHL	A, 6	31 69	1		1	1		
+SHL	A, 7	31 79	1		1	1		
+SHL	B, 1	31 18	1		1	1		
+SHL	B, 2	31 28	1		1	1		
+SHL	B, 3	31 38	1		1	1		
+SHL	B, 4	31 48	1		1	1		
+SHL	B, 5	31 58	1		1	1		
+SHL	B, 6	31 68	1		1	1		
+SHL	B, 7	31 78	1		1	1		
+SHL	C, 1	31 17	1		1	1		
+SHL	C, 2	31 27	1		1	1		
+SHL	C, 3	31 37	1		1	1		
+SHL	C, 4	31 47	1		1	1		
+SHL	C, 5	31 57	1		1	1		
+SHL	C, 6	31 67	1		1	1		
+SHL	C, 7	31 77	1		1	1		
+SHLW	AX, 1	31 1D	1		1	2		
+SHLW	AX, 2	31 2D	1		1	2		
+SHLW	AX, 3	31 3D	1		1	2		
+SHLW	AX, 4	31 4D	1		1	2		
+SHLW	AX, 5	31 5D	1		1	2		
+SHLW	AX, 6	31 6D	1		1	2		
+SHLW	AX, 7	31 7D	1		1	2		
+SHLW	AX, 8	31 8D	1		1	2		
+SHLW	AX, 9	31 9D	1		1	2		
+SHLW	AX, 10	31 AD	1		1	2		
+SHLW	AX, 11	31 BD	1		1	2		
+SHLW	AX, 12	31 CD	1		1	2		
+SHLW	AX, 13	31 DD	1		1	2		
+SHLW	AX, 14	31 ED	1		1	2		
+SHLW	AX, 15	31 FD	1		1	2		
+SHLW	BC, 1	31 1C	1		1	2		
+SHLW	BC, 2	31 2C	1		1	2		
+SHLW	BC, 3	31 3C	1		1	2		
+SHLW	BC, 4	31 4C	1		1	2		
+SHLW	BC, 5	31 5C	1		1	2		
+SHLW	BC, 6	31 6C	1		1	2		
+SHLW	BC, 7	31 7C	1		1	2		
+SHLW	BC, 8	31 8C	1		1	2		
+SHLW	BC, 9	31 9C	1		1	2		
+SHLW	BC, 10	31 AC	1		1	2		
+SHLW	BC, 11	31 BC	1		1	2		
+SHLW	BC, 12	31 CC	1		1	2		
+SHLW	BC, 13	31 DC	1		1	2		
+SHLW	BC, 14	31 EC	1		1	2		
+SHLW	BC, 15	31 FC	1		1	2		
+SAR	A, 1	31 1B	1		1	1		
+SAR	A, 2	31 2B	1		1	1		
+SAR	A, 3	31 3B	1		1	1		
+SAR	A, 4	31 4B	1		1	1		
+SAR	A, 5	31 5B	1		1	1		
+SAR	A, 6	31 6B	1		1	1		
+SAR	A, 7	31 7B	1		1	1		
+SARW	AX, 1	31 1F	1		1	2		
+SARW	AX, 2	31 2F	1		1	2		
+SARW	AX, 3	31 3F	1		1	2		
+SARW	AX, 4	31 4F	1		1	2		
+SARW	AX, 5	31 5F	1		1	2		
+SARW	AX, 6	31 6F	1		1	2		
+SARW	AX, 7	31 7F	1		1	2		
+SARW	AX, 8	31 8F	1		1	2		
+SARW	AX, 9	31 9F	1		1	2		
+SARW	AX, 10	31 AF	1		1	2		
+SARW	AX, 11	31 BF	1		1	2		
+SARW	AX, 12	31 CF	1		1	2		
+SARW	AX, 13	31 DF	1		1	2		
+SARW	AX, 14	31 EF	1		1	2		
+SARW	AX, 15	31 FF	1		1	2		
+ROR	A, 1	61 DB	1		1	1		
+ROL	A, 1	61 EB	1		1	1		
+RORC	A, 1	61 FB	1		1	1		
+ROLC	A, 1	61 DC	1		1	1		
+ROLWC	AX, 1	61 EE	1		1	2		
+ROLWC	BC, 1	61 FE	1		1	2		
+MOV1	CY, saddr.0	71 04 saddr	1		1	1		
+MOV1	CY, saddr.1	71 14 saddr	1		1	1		
+MOV1	CY, saddr.2	71 24 saddr	1		1	1		
+MOV1	CY, saddr.3	71 34 saddr	1		1	1		
+MOV1	CY, saddr.4	71 44 saddr	1		1	1		
+MOV1	CY, saddr.5	71 54 saddr	1		1	1		
+MOV1	CY, saddr.6	71 64 saddr	1		1	1		
+MOV1	CY, saddr.7	71 74 saddr	1		1	1		
+MOV1	CY, sfr.0	71 0C sfr	1		1	1		
+MOV1	CY, sfr.1	71 1C sfr	1		1	1		
+MOV1	CY, sfr.2	71 2C sfr	1		1	1		
+MOV1	CY, sfr.3	71 3C sfr	1		1	1		
+MOV1	CY, sfr.4	71 4C sfr	1		1	1		
+MOV1	CY, sfr.5	71 5C sfr	1		1	1		
+MOV1	CY, sfr.6	71 6C sfr	1		1	1		
+MOV1	CY, sfr.7	71 7C sfr	1		1	1		
+MOV1	CY, A.0	71 8C	1		1	1		
+MOV1	CY, A.1	71 9C	1		1	1		
+MOV1	CY, A.2	71 AC	1		1	1		
+MOV1	CY, A.3	71 BC	1		1	1		
+MOV1	CY, A.4	71 CC	1		1	1		
+MOV1	CY, A.5	71 DC	1		1	1		
+MOV1	CY, A.6	71 EC	1		1	1		
+MOV1	CY, A.7	71 FC	1		1	1		
+MOV1	CY, PSW.0	71 0C FA	1		1	1		
+MOV1	CY, PSW.1	71 1C FA	1		1	1		
+MOV1	CY, PSW.2	71 2C FA	1		1	1		
+MOV1	CY, PSW.3	71 3C FA	1		1	1		
+MOV1	CY, PSW.4	71 4C FA	1		1	1		
+MOV1	CY, PSW.5	71 5C FA	1		1	1		
+MOV1	CY, PSW.6	71 6C FA	1		1	1		
+MOV1	CY, PSW.7	71 7C FA	1		1	1		
+MOV1	CY, [HL].0	71 84	1	4	1	1	4	4
+MOV1	CY, [HL].1	71 94	1	4	1	1	4	4
+MOV1	CY, [HL].2	71 A4	1	4	1	1	4	4
+MOV1	CY, [HL].3	71 B4	1	4	1	1	4	4
+MOV1	CY, [HL].4	71 C4	1	4	1	1	4	4
+MOV1	CY, [HL].5	71 D4	1	4	1	1	4	4
+MOV1	CY, [HL].6	71 E4	1	4	1	1	4	4
+MOV1	CY, [HL].7	71 F4	1	4	1	1	4	4
+MOV1	saddr.0, CY	71 01 saddr	2		2	2		
+MOV1	saddr.1, CY	71 11 saddr	2		2	2		
+MOV1	saddr.2, CY	71 21 saddr	2		2	2		
+MOV1	saddr.3, CY	71 31 saddr	2		2	2		
+MOV1	saddr.4, CY	71 41 saddr	2		2	2		
+MOV1	saddr.5, CY	71 51 saddr	2		2	2		
+MOV1	saddr.6, CY	71 61 saddr	2		2	2		
+MOV1	saddr.7, CY	71 71 saddr	2		2	2		
+MOV1	sfr.0, CY	71 09 sfr	2		2	2		
+MOV1	sfr.1, CY	71 19 sfr	2		2	2		
+MOV1	sfr.2, CY	71 29 sfr	2		2	2		
+MOV1	sfr.3, CY	71 39 sfr	2		2	2		
+MOV1	sfr.4, CY	71 49 sfr	2		2	2		
+MOV1	sfr.5, CY	71 59 sfr	2		2	2		
+MOV1	sfr.6, CY	71 69 sfr	2		2	2		
+MOV1	sfr.7, CY	71 79 sfr	2		2	2		
+MOV1	A.0, CY	71 89	1		1	1		
+MOV1	A.1, CY	71 99	1		1	1		
+MOV1	A.2, CY	71 A9	1		1	1		
+MOV1	A.3, CY	71 B9	1		1	1		
+MOV1	A.4, CY	71 C9	1		1	1		
+MOV1	A.5, CY	71 D9	1		1	1		
+MOV1	A.6, CY	71 E9	1		1	1		
+MOV1	A.7, CY	71 F9	1		1	1		
+MOV1	PSW.0, CY	71 09 FA	4		4	4		
+MOV1	PSW.1, CY	71 19 FA	4		4	4		
+MOV1	PSW.2, CY	71 29 FA	4		4	4		
+MOV1	PSW.3, CY	71 39 FA	4		4	4		
+MOV1	PSW.4, CY	71 49 FA	4		4	4		
+MOV1	PSW.5, CY	71 59 FA	4		4	4		
+MOV1	PSW.6, CY	71 69 FA	4		4	4		
+MOV1	PSW.7, CY	71 79 FA	4		4	4		
+MOV1	[HL].0, CY	71 81	2		2	2		
+MOV1	[HL].1, CY	71 91	2		2	2		
+MOV1	[HL].2, CY	71 A1	2		2	2		
+MOV1	[HL].3, CY	71 B1	2		2	2		
+MOV1	[HL].4, CY	71 C1	2		2	2		
+MOV1	[HL].5, CY	71 D1	2		2	2		
+MOV1	[HL].6, CY	71 E1	2		2	2		
+MOV1	[HL].7, CY	71 F1	2		2	2		
+MOV1	CY, ES:[HL].0	11 71 84	2	5	2	2	5	5
+MOV1	CY, ES:[HL].1	11 71 94	2	5	2	2	5	5
+MOV1	CY, ES:[HL].2	11 71 A4	2	5	2	2	5	5
+MOV1	CY, ES:[HL].3	11 71 B4	2	5	2	2	5	5
+MOV1	CY, ES:[HL].4	11 71 C4	2	5	2	2	5	5
+MOV1	CY, ES:[HL].5	11 71 D4	2	5	2	2	5	5
+MOV1	CY, ES:[HL].6	11 71 E4	2	5	2	2	5	5
+MOV1	CY, ES:[HL].7	11 71 F4	2	5	2	2	5	5
+MOV1	ES:[HL].0, CY	11 71 81	3		3	3		
+MOV1	ES:[HL].1, CY	11 71 91	3		3	3		
+MOV1	ES:[HL].2, CY	11 71 A1	3		3	3		
+MOV1	ES:[HL].3, CY	11 71 B1	3		3	3		
+MOV1	ES:[HL].4, CY	11 71 C1	3		3	3		
+MOV1	ES:[HL].5, CY	11 71 D1	3		3	3		
+MOV1	ES:[HL].6, CY	11 71 E1	3		3	3		
+MOV1	ES:[HL].7, CY	11 71 F1	3		3	3		
+AND1	CY, saddr.0	71 05 saddr	1		1	1		
+AND1	CY, saddr.1	71 15 saddr	1		1	1		
+AND1	CY, saddr.2	71 25 saddr	1		1	1		
+AND1	CY, saddr.3	71 35 saddr	1		1	1		
+AND1	CY, saddr.4	71 45 saddr	1		1	1		
+AND1	CY, saddr.5	71 55 saddr	1		1	1		
+AND1	CY, saddr.6	71 65 saddr	1		1	1		
+AND1	CY, saddr.7	71 75 saddr	1		1	1		
+AND1	CY, sfr.0	71 0D sfr	1		1	1		
+AND1	CY, sfr.1	71 1D sfr	1		1	1		
+AND1	CY, sfr.2	71 2D sfr	1		1	1		
+AND1	CY, sfr.3	71 3D sfr	1		1	1		
+AND1	CY, sfr.4	71 4D sfr	1		1	1		
+AND1	CY, sfr.5	71 5D sfr	1		1	1		
+AND1	CY, sfr.6	71 6D sfr	1		1	1		
+AND1	CY, sfr.7	71 7D sfr	1		1	1		
+AND1	CY, A.0	71 8D	1		1	1		
+AND1	CY, A.1	71 9D	1		1	1		
+AND1	CY, A.2	71 AD	1		1	1		
+AND1	CY, A.3	71 BD	1		1	1		
+AND1	CY, A.4	71 CD	1		1	1		
+AND1	CY, A.5	71 DD	1		1	1		
+AND1	CY, A.6	71 ED	1		1	1		
+AND1	CY, A.7	71 FD	1		1	1		
+AND1	CY, PSW.0	71 0D FA	1		1	1		
+AND1	CY, PSW.1	71 1D FA	1		1	1		
+AND1	CY, PSW.2	71 2D FA	1		1	1		
+AND1	CY, PSW.3	71 3D FA	1		1	1		
+AND1	CY, PSW.4	71 4D FA	1		1	1		
+AND1	CY, PSW.5	71 5D FA	1		1	1		
+AND1	CY, PSW.6	71 6D FA	1		1	1		
+AND1	CY, PSW.7	71 7D FA	1		1	1		
+AND1	CY, [HL].0	71 85	1	4	1	1	4	4
+AND1	CY, [HL].1	71 95	1	4	1	1	4	4
+AND1	CY, [HL].2	71 A5	1	4	1	1	4	4
+AND1	CY, [HL].3	71 B5	1	4	1	1	4	4
+AND1	CY, [HL].4	71 C5	1	4	1	1	4	4
+AND1	CY, [HL].5	71 D5	1	4	1	1	4	4
+AND1	CY, [HL].6	71 E5	1	4	1	1	4	4
+AND1	CY, [HL].7	71 F5	1	4	1	1	4	4
+AND1	CY, ES:[HL].0	11 71 85	2	5	2	2	5	5
+AND1	CY, ES:[HL].1	11 71 95	2	5	2	2	5	5
+AND1	CY, ES:[HL].2	11 71 A5	2	5	2	2	5	5
+AND1	CY, ES:[HL].3	11 71 B5	2	5	2	2	5	5
+AND1	CY, ES:[HL].4	11 71 C5	2	5	2	2	5	5
+AND1	CY, ES:[HL].5	11 71 D5	2	5	2	2	5	5
+AND1	CY, ES:[HL].6	11 71 E5	2	5	2	2	5	5
+AND1	CY, ES:[HL].7	11 71 F5	2	5	2	2	5	5
+OR1	CY, saddr.0	71 06 saddr	1		1	1		
+OR1	CY, saddr.1	71 16 saddr	1		1	1		
+OR1	CY, saddr.2	71 26 saddr	1		1	1		
+OR1	CY, saddr.3	71 36 saddr	1		1	1		
+OR1	CY, saddr.4	71 46 saddr	1		1	1		
+OR1	CY, saddr.5	71 56 saddr	1		1	1		
+OR1	CY, saddr.6	71 66 saddr	1		1	1		
+OR1	CY, saddr.7	71 76 saddr	1		1	1		
+OR1	CY, sfr.0	71 0E sfr	1		1	1		
+OR1	CY, sfr.1	71 1E sfr	1		1	1		
+OR1	CY, sfr.2	71 2E sfr	1		1	1		
+OR1	CY, sfr.3	71 3E sfr	1		1	1		
+OR1	CY, sfr.4	71 4E sfr	1		1	1		
+OR1	CY, sfr.5	71 5E sfr	1		1	1		
+OR1	CY, sfr.6	71 6E sfr	1		1	1		
+OR1	CY, sfr.7	71 7E sfr	1		1	1		
+OR1	CY, A.0	71 8E	1		1	1		
+OR1	CY, A.1	71 9E	1		1	1		
+OR1	CY, A.2	71 AE	1		1	1		
+OR1	CY, A.3	71 BE	1		1	1		
+OR1	CY, A.4	71 CE	1		1	1		
+OR1	CY, A.5	71 DE	1		1	1		
+OR1	CY, A.6	71 EE	1		1	1		
+OR1	CY, A.7	71 FE	1		1	1		
+OR1	CY, PSW.0	71 0E FA	1		1	1		
+OR1	CY, PSW.1	71 1E FA	1		1	1		
+OR1	CY, PSW.2	71 2E FA	1		1	1		
+OR1	CY, PSW.3	71 3E FA	1		1	1		
+OR1	CY, PSW.4	71 4E FA	1		1	1		
+OR1	CY, PSW.5	71 5E FA	1		1	1		
+OR1	CY, PSW.6	71 6E FA	1		1	1		
+OR1	CY, PSW.7	71 7E FA	1		1	1		
+OR1	CY, [HL].0	71 86	1	4	1	1	4	4
+OR1	CY, [HL].1	71 96	1	4	1	1	4	4
+OR1	CY, [HL].2	71 A6	1	4	1	1	4	4
+OR1	CY, [HL].3	71 B6	1	4	1	1	4	4
+OR1	CY, [HL].4	71 C6	1	4	1	1	4	4
+OR1	CY, [HL].5	71 D6	1	4	1	1	4	4
+OR1	CY, [HL].6	71 E6	1	4	1	1	4	4
+OR1	CY, [HL].7	71 F6	1	4	1	1	4	4
+OR1	CY, ES:[HL].0	11 71 86	2	5	2	2	5	5
+OR1	CY, ES:[HL].1	11 71 96	2	5	2	2	5	5
+OR1	CY, ES:[HL].2	11 71 A6	2	5	2	2	5	5
+OR1	CY, ES:[HL].3	11 71 B6	2	5	2	2	5	5
+OR1	CY, ES:[HL].4	11 71 C6	2	5	2	2	5	5
+OR1	CY, ES:[HL].5	11 71 D6	2	5	2	2	5	5
+OR1	CY, ES:[HL].6	11 71 E6	2	5	2	2	5	5
+OR1	CY, ES:[HL].7	11 71 F6	2	5	2	2	5	5
+XOR1	CY, saddr.0	71 07 saddr	1		1	1		
+XOR1	CY, saddr.1	71 17 saddr	1		1	1		
+XOR1	CY, saddr.2	71 27 saddr	1		1	1		
+XOR1	CY, saddr.3	71 37 saddr	1		1	1		
+XOR1	CY, saddr.4	71 47 saddr	1		1	1		
+XOR1	CY, saddr.5	71 57 saddr	1		1	1		
+XOR1	CY, saddr.6	71 67 saddr	1		1	1		
+XOR1	CY, saddr.7	71 77 saddr	1		1	1		
+XOR1	CY, sfr.0	71 0F sfr	1		1	1		
+XOR1	CY, sfr.1	71 1F sfr	1		1	1		
+XOR1	CY, sfr.2	71 2F sfr	1		1	1		
+XOR1	CY, sfr.3	71 3F sfr	1		1	1		
+XOR1	CY, sfr.4	71 4F sfr	1		1	1		
+XOR1	CY, sfr.5	71 5F sfr	1		1	1		
+XOR1	CY, sfr.6	71 6F sfr	1		1	1		
+XOR1	CY, sfr.7	71 7F sfr	1		1	1		
+XOR1	CY, A.0	71 8F	1		1	1		
+XOR1	CY, A.1	71 9F	1		1	1		
+XOR1	CY, A.2	71 AF	1		1	1		
+XOR1	CY, A.3	71 BF	1		1	1		
+XOR1	CY, A.4	71 CF	1		1	1		
+XOR1	CY, A.5	71 DF	1		1	1		
+XOR1	CY, A.6	71 EF	1		1	1		
+XOR1	CY, A.7	71 FF	1		1	1		
+XOR1	CY, PSW.0	71 0F FA	1		1	1		
+XOR1	CY, PSW.1	71 1F FA	1		1	1		
+XOR1	CY, PSW.2	71 2F FA	1		1	1		
+XOR1	CY, PSW.3	71 3F FA	1		1	1		
+XOR1	CY, PSW.4	71 4F FA	1		1	1		
+XOR1	CY, PSW.5	71 5F FA	1		1	1		
+XOR1	CY, PSW.6	71 6F FA	1		1	1		
+XOR1	CY, PSW.7	71 7F FA	1		1	1		
+XOR1	CY, [HL].0	71 87	1	4	1	1	4	4
+XOR1	CY, [HL].1	71 97	1	4	1	1	4	4
+XOR1	CY, [HL].2	71 A7	1	4	1	1	4	4
+XOR1	CY, [HL].3	71 B7	1	4	1	1	4	4
+XOR1	CY, [HL].4	71 C7	1	4	1	1	4	4
+XOR1	CY, [HL].5	71 D7	1	4	1	1	4	4
+XOR1	CY, [HL].6	71 E7	1	4	1	1	4	4
+XOR1	CY, [HL].7	71 F7	1	4	1	1	4	4
+XOR1	CY, ES:[HL].0	11 71 87	2	5	2	2	5	5
+XOR1	CY, ES:[HL].1	11 71 97	2	5	2	2	5	5
+XOR1	CY, ES:[HL].2	11 71 A7	2	5	2	2	5	5
+XOR1	CY, ES:[HL].3	11 71 B7	2	5	2	2	5	5
+XOR1	CY, ES:[HL].4	11 71 C7	2	5	2	2	5	5
+XOR1	CY, ES:[HL].5	11 71 D7	2	5	2	2	5	5
+XOR1	CY, ES:[HL].6	11 71 E7	2	5	2	2	5	5
+XOR1	CY, ES:[HL].7	11 71 F7	2	5	2	2	5	5
+SET1	saddr.0	71 02 saddr	2		2	2		
+SET1	saddr.1	71 12 saddr	2		2	2		
+SET1	saddr.2	71 22 saddr	2		2	2		
+SET1	saddr.3	71 32 saddr	2		2	2		
+SET1	saddr.4	71 42 saddr	2		2	2		
+SET1	saddr.5	71 52 saddr	2		2	2		
+SET1	saddr.6	71 62 saddr	2		2	2		
+SET1	saddr.7	71 72 saddr	2		2	2		
+SET1	sfr.0	71 0A sfr	2		2	2		
+SET1	sfr.1	71 1A sfr	2		2	2		
+SET1	sfr.2	71 2A sfr	2		2	2		
+SET1	sfr.3	71 3A sfr	2		2	2		
+SET1	sfr.4	71 4A sfr	2		2	2		
+SET1	sfr.5	71 5A sfr	2		2	2		
+SET1	sfr.6	71 6A sfr	2		2	2		
+SET1	sfr.7	71 7A sfr	2		2	2		
+SET1	A.0	71 8A	1		1	1		
+SET1	A.1	71 9A	1		1	1		
+SET1	A.2	71 AA	1		1	1		
+SET1	A.3	71 BA	1		1	1		
+SET1	A.4	71 CA	1		1	1		
+SET1	A.5	71 DA	1		1	1		
+SET1	A.6	71 EA	1		1	1		
+SET1	A.7	71 FA	1		1	1		
+SET1	!addr16.0	71 00 adrl adrh	2		2	2		
+SET1	!addr16.1	71 10 adrl adrh	2		2	2		
+SET1	!addr16.2	71 20 adrl adrh	2		2	2		
+SET1	!addr16.3	71 30 adrl adrh	2		2	2		
+SET1	!addr16.4	71 40 adrl adrh	2		2	2		
+SET1	!addr16.5	71 50 adrl adrh	2		2	2		
+SET1	!addr16.6	71 60 adrl adrh	2		2	2		
+SET1	!addr16.7	71 70 adrl adrh	2		2	2		
+SET1	PSW.0	71 0A FA	4		4	4		
+SET1	PSW.1	71 1A FA	4		4	4		
+SET1	PSW.2	71 2A FA	4		4	4		
+SET1	PSW.3	71 3A FA	4		4	4		
+SET1	PSW.4	71 4A FA	4		4	4		
+SET1	PSW.5	71 5A FA	4		4	4		
+SET1	PSW.6	71 6A FA	4		4	4		
+SET1	PSW.7	71 7A FA	4		4	4		
+SET1	[HL].0	71 82	2		2	2		
+SET1	[HL].1	71 92	2		2	2		
+SET1	[HL].2	71 A2	2		2	2		
+SET1	[HL].3	71 B2	2		2	2		
+SET1	[HL].4	71 C2	2		2	2		
+SET1	[HL].5	71 D2	2		2	2		
+SET1	[HL].6	71 E2	2		2	2		
+SET1	[HL].7	71 F2	2		2	2		
+SET1	ES:!addr16.0	11 71 00 adrl adrh	3		3	3		
+SET1	ES:!addr16.1	11 71 10 adrl adrh	3		3	3		
+SET1	ES:!addr16.2	11 71 20 adrl adrh	3		3	3		
+SET1	ES:!addr16.3	11 71 30 adrl adrh	3		3	3		
+SET1	ES:!addr16.4	11 71 40 adrl adrh	3		3	3		
+SET1	ES:!addr16.5	11 71 50 adrl adrh	3		3	3		
+SET1	ES:!addr16.6	11 71 60 adrl adrh	3		3	3		
+SET1	ES:!addr16.7	11 71 70 adrl adrh	3		3	3		
+SET1	ES:[HL].0	11 71 82	3		3	3		
+SET1	ES:[HL].1	11 71 92	3		3	3		
+SET1	ES:[HL].2	11 71 A2	3		3	3		
+SET1	ES:[HL].3	11 71 B2	3		3	3		
+SET1	ES:[HL].4	11 71 C2	3		3	3		
+SET1	ES:[HL].5	11 71 D2	3		3	3		
+SET1	ES:[HL].6	11 71 E2	3		3	3		
+SET1	ES:[HL].7	11 71 F2	3		3	3		
+CLR1	saddr.0	71 03 saddr	2		2	2		
+CLR1	saddr.1	71 13 saddr	2		2	2		
+CLR1	saddr.2	71 23 saddr	2		2	2		
+CLR1	saddr.3	71 33 saddr	2		2	2		
+CLR1	saddr.4	71 43 saddr	2		2	2		
+CLR1	saddr.5	71 53 saddr	2		2	2		
+CLR1	saddr.6	71 63 saddr	2		2	2		
+CLR1	saddr.7	71 73 saddr	2		2	2		
+CLR1	sfr.0	71 0B sfr	2		2	2		
+CLR1	sfr.1	71 1B sfr	2		2	2		
+CLR1	sfr.2	71 2B sfr	2		2	2		
+CLR1	sfr.3	71 3B sfr	2		2	2		
+CLR1	sfr.4	71 4B sfr	2		2	2		
+CLR1	sfr.5	71 5B sfr	2		2	2		
+CLR1	sfr.6	71 6B sfr	2		2	2		
+CLR1	sfr.7	71 7B sfr	2		2	2		
+CLR1	A.0	71 8B	1		1	1		
+CLR1	A.1	71 9B	1		1	1		
+CLR1	A.2	71 AB	1		1	1		
+CLR1	A.3	71 BB	1		1	1		
+CLR1	A.4	71 CB	1		1	1		
+CLR1	A.5	71 DB	1		1	1		
+CLR1	A.6	71 EB	1		1	1		
+CLR1	A.7	71 FB	1		1	1		
+CLR1	!addr16.0	71 08 adrl adrh	2		2	2		
+CLR1	!addr16.1	71 18 adrl adrh	2		2	2		
+CLR1	!addr16.2	71 28 adrl adrh	2		2	2		
+CLR1	!addr16.3	71 38 adrl adrh	2		2	2		
+CLR1	!addr16.4	71 48 adrl adrh	2		2	2		
+CLR1	!addr16.5	71 58 adrl adrh	2		2	2		
+CLR1	!addr16.6	71 68 adrl adrh	2		2	2		
+CLR1	!addr16.7	71 78 adrl adrh	2		2	2		
+CLR1	PSW.0	71 0B FA	4		4	4		
+CLR1	PSW.1	71 1B FA	4		4	4		
+CLR1	PSW.2	71 2B FA	4		4	4		
+CLR1	PSW.3	71 3B FA	4		4	4		
+CLR1	PSW.4	71 4B FA	4		4	4		
+CLR1	PSW.5	71 5B FA	4		4	4		
+CLR1	PSW.6	71 6B FA	4		4	4		
+CLR1	PSW.7	71 7B FA	4		4	4		
+CLR1	[HL].0	71 83	2		2	2		
+CLR1	[HL].1	71 93	2		2	2		
+CLR1	[HL].2	71 A3	2		2	2		
+CLR1	[HL].3	71 B3	2		2	2		
+CLR1	[HL].4	71 C3	2		2	2		
+CLR1	[HL].5	71 D3	2		2	2		
+CLR1	[HL].6	71 E3	2		2	2		
+CLR1	[HL].7	71 F3	2		2	2		
+CLR1	ES:!addr16.0	11 71 08 adrl adrh	3		3	3		
+CLR1	ES:!addr16.1	11 71 18 adrl adrh	3		3	3		
+CLR1	ES:!addr16.2	11 71 28 adrl adrh	3		3	3		
+CLR1	ES:!addr16.3	11 71 38 adrl adrh	3		3	3		
+CLR1	ES:!addr16.4	11 71 48 adrl adrh	3		3	3		
+CLR1	ES:!addr16.5	11 71 58 adrl adrh	3		3	3		
+CLR1	ES:!addr16.6	11 71 68 adrl adrh	3		3	3		
+CLR1	ES:!addr16.7	11 71 78 adrl adrh	3		3	3		
+CLR1	ES:[HL].0	11 71 83	3		3	3		
+CLR1	ES:[HL].1	11 71 93	3		3	3		
+CLR1	ES:[HL].2	11 71 A3	3		3	3		
+CLR1	ES:[HL].3	11 71 B3	3		3	3		
+CLR1	ES:[HL].4	11 71 C3	3		3	3		
+CLR1	ES:[HL].5	11 71 D3	3		3	3		
+CLR1	ES:[HL].6	11 71 E3	3		3	3		
+CLR1	ES:[HL].7	11 71 F3	3		3	3		
+SET1	CY	71 80	1		1	1		
+CLR1	CY	71 88	1		1	1		
+NOT1	CY	71 C0	1		1	1		
+CALL	AX	61 CA	3		3	4		
+CALL	BC	61 DA	3		3	4		
+CALL	DE	61 EA	3		3	4		
+CALL	HL	61 FA	3		3	4		
+CALL	$!addr20	FE adrl adrh	3		3	4		
+CALL	!addr16	FD adrl adrh	3		3	4		
+CALL	!!addr20	FC adrl adrh adrs	3		3	4		
+CALLT	[0080h]	61 84	5		5	6		
+CALLT	[0082h]	61 94	5		5	6		
+CALLT	[0084h]	61 A4	5		5	6		
+CALLT	[0086h]	61 B4	5		5	6		
+CALLT	[0088h]	61 C4	5		5	6		
+CALLT	[008Ah]	61 D4	5		5	6		
+CALLT	[008Ch]	61 E4	5		5	6		
+CALLT	[008Eh]	61 F4	5		5	6		
+CALLT	[0090h]	61 85	5		5	6		
+CALLT	[0092h]	61 95	5		5	6		
+CALLT	[0094h]	61 A5	5		5	6		
+CALLT	[0096h]	61 B5	5		5	6		
+CALLT	[0098h]	61 C5	5		5	6		
+CALLT	[009Ah]	61 D5	5		5	6		
+CALLT	[009Ch]	61 E5	5		5	6		
+CALLT	[009Eh]	61 F5	5		5	6		
+CALLT	[00A0h]	61 86	5		5	6		
+CALLT	[00A2h]	61 96	5		5	6		
+CALLT	[00A4h]	61 A6	5		5	6		
+CALLT	[00A6h]	61 B6	5		5	6		
+CALLT	[00A8h]	61 C6	5		5	6		
+CALLT	[00AAh]	61 D6	5		5	6		
+CALLT	[00ACh]	61 E6	5		5	6		
+CALLT	[00AEh]	61 F6	5		5	6		
+CALLT	[00B0h]	61 87	5		5	6		
+CALLT	[00B2h]	61 97	5		5	6		
+CALLT	[00B4h]	61 A7	5		5	6		
+CALLT	[00B6h]	61 B7	5		5	6		
+CALLT	[00B8h]	61 C7	5		5	6		
+CALLT	[00BAh]	61 D7	5		5	6		
+CALLT	[00BCh]	61 E7	5		5	6		
+CALLT	[00BEh]	61 F7	5		5	6		
+BRK		61 CC	5		5	7		
+RET		D7	6		6	7		
+RETI		61 FC	6		6	8		
+RETB		61 EC	6		6	8		
+PUSH	PSW	61 DD	1		1	2		
+PUSH	AX	C1	1		1	2		
+PUSH	BC	C3	1		1	2		
+PUSH	DE	C5	1		1	2		
+PUSH	HL	C7	1		1	2		
+POP	PSW	61 CD	3		3	4		
+POP	AX	C0	1		1	2		
+POP	BC	C2	1		1	2		
+POP	DE	C4	1		1	2		
+POP	HL	C6	1		1	2		
+MOVW	SP, #word	CB F8 datal datah	1		1	2		
+MOVW	SP, AX	BE F8	1		1	2		
+MOVW	AX, SP	AE F8	1		1	2		
+MOVW	BC, SP	DB F8 FF	1		1	2		
+MOVW	DE, SP	EB F8 FF	1		1	2		
+MOVW	HL, SP	FB F8 FF	1		1	2		
+ADDW	SP, #byte	10 data	1		1	2		
+SUBW	SP, #byte	20 data	1		1	2		
+BR	AX	61 CB	3		3	3		
+BR	$addr20	EF adr	3		3	3		
+BR	$!addr20	EE adrl adrh	3		3	3		
+BR	!addr16	ED adrl adrh	3		3	3		
+BR	!!addr20	EC adrl adrh adrs	3		3	3		
+BC	$addr20	DC adr	2/4		2/4	2/4		
+BNC	$addr20	DE adr	2/4		2/4	2/4		
+BZ	$addr20	DD adr	2/4		2/4	2/4		
+BNZ	$addr20	DF adr	2/4		2/4	2/4		
+BH	$addr20	61 C3 adr	2/4		2/4	2/4		
+BNH	$addr20	61 D3 adr	2/4		2/4	2/4		
+BT	saddr.0, $addr20	31 02 saddr adr	3/5		3/5	3/5		
+BT	saddr.1, $addr20	31 12 saddr adr	3/5		3/5	3/5		
+BT	saddr.2, $addr20	31 22 saddr adr	3/5		3/5	3/5		
+BT	saddr.3, $addr20	31 32 saddr adr	3/5		3/5	3/5		
+BT	saddr.4, $addr20	31 42 saddr adr	3/5		3/5	3/5		
+BT	saddr.5, $addr20	31 52 saddr adr	3/5		3/5	3/5		
+BT	saddr.6, $addr20	31 62 saddr adr	3/5		3/5	3/5		
+BT	saddr.7, $addr20	31 72 saddr adr	3/5		3/5	3/5		
+BT	sfr.0, $addr20	31 82 sfr adr	3/5		3/5	3/5		
+BT	sfr.1, $addr20	31 92 sfr adr	3/5		3/5	3/5		
+BT	sfr.2, $addr20	31 A2 sfr adr	3/5		3/5	3/5		
+BT	sfr.3, $addr20	31 B2 sfr adr	3/5		3/5	3/5		
+BT	sfr.4, $addr20	31 C2 sfr adr	3/5		3/5	3/5		
+BT	sfr.5, $addr20	31 D2 sfr adr	3/5		3/5	3/5		
+BT	sfr.6, $addr20	31 E2 sfr adr	3/5		3/5	3/5		
+BT	sfr.7, $addr20	31 F2 sfr adr	3/5		3/5	3/5		
+BT	A.0, $addr20	31 03 adr	3/5		3/5	3/5		
+BT	A.1, $addr20	31 13 adr	3/5		3/5	3/5		
+BT	A.2, $addr20	31 23 adr	3/5		3/5	3/5		
+BT	A.3, $addr20	31 33 adr	3/5		3/5	3/5		
+BT	A.4, $addr20	31 43 adr	3/5		3/5	3/5		
+BT	A.5, $addr20	31 53 adr	3/5		3/5	3/5		
+BT	A.6, $addr20	31 63 adr	3/5		3/5	3/5		
+BT	A.7, $addr20	31 73 adr	3/5		3/5	3/5		
+BT	PSW.0, $addr20	31 82 FA adr	3/5		3/5	3/5		
+BT	PSW.1, $addr20	31 92 FA adr	3/5		3/5	3/5		
+BT	PSW.2, $addr20	31 A2 FA adr	3/5		3/5	3/5		
+BT	PSW.3, $addr20	31 B2 FA adr	3/5		3/5	3/5		
+BT	PSW.4, $addr20	31 C2 FA adr	3/5		3/5	3/5		
+BT	PSW.5, $addr20	31 D2 FA adr	3/5		3/5	3/5		
+BT	PSW.6, $addr20	31 E2 FA adr	3/5		3/5	3/5		
+BT	PSW.7, $addr20	31 F2 FA adr	3/5		3/5	3/5		
+BT	[HL].0, $addr20	31 83 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BT	[HL].1, $addr20	31 93 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BT	[HL].2, $addr20	31 A3 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BT	[HL].3, $addr20	31 B3 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BT	[HL].4, $addr20	31 C3 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BT	[HL].5, $addr20	31 D3 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BT	[HL].6, $addr20	31 E3 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BT	[HL].7, $addr20	31 F3 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BT	ES:[HL].0, $addr20	11 31 83 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BT	ES:[HL].1, $addr20	11 31 93 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BT	ES:[HL].2, $addr20	11 31 A3 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BT	ES:[HL].3, $addr20	11 31 B3 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BT	ES:[HL].4, $addr20	11 31 C3 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BT	ES:[HL].5, $addr20	11 31 D3 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BT	ES:[HL].6, $addr20	11 31 E3 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BT	ES:[HL].7, $addr20	11 31 F3 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BF	saddr.0, $addr20	31 04 saddr adr	3/5		3/5	3/5		
+BF	saddr.1, $addr20	31 14 saddr adr	3/5		3/5	3/5		
+BF	saddr.2, $addr20	31 24 saddr adr	3/5		3/5	3/5		
+BF	saddr.3, $addr20	31 34 saddr adr	3/5		3/5	3/5		
+BF	saddr.4, $addr20	31 44 saddr adr	3/5		3/5	3/5		
+BF	saddr.5, $addr20	31 54 saddr adr	3/5		3/5	3/5		
+BF	saddr.6, $addr20	31 64 saddr adr	3/5		3/5	3/5		
+BF	saddr.7, $addr20	31 74 saddr adr	3/5		3/5	3/5		
+BF	sfr.0, $addr20	31 84 sfr adr	3/5		3/5	3/5		
+BF	sfr.1, $addr20	31 94 sfr adr	3/5		3/5	3/5		
+BF	sfr.2, $addr20	31 A4 sfr adr	3/5		3/5	3/5		
+BF	sfr.3, $addr20	31 B4 sfr adr	3/5		3/5	3/5		
+BF	sfr.4, $addr20	31 C4 sfr adr	3/5		3/5	3/5		
+BF	sfr.5, $addr20	31 D4 sfr adr	3/5		3/5	3/5		
+BF	sfr.6, $addr20	31 E4 sfr adr	3/5		3/5	3/5		
+BF	sfr.7, $addr20	31 F4 sfr adr	3/5		3/5	3/5		
+BF	A.0, $addr20	31 05 adr	3/5		3/5	3/5		
+BF	A.1, $addr20	31 15 adr	3/5		3/5	3/5		
+BF	A.2, $addr20	31 25 adr	3/5		3/5	3/5		
+BF	A.3, $addr20	31 35 adr	3/5		3/5	3/5		
+BF	A.4, $addr20	31 45 adr	3/5		3/5	3/5		
+BF	A.5, $addr20	31 55 adr	3/5		3/5	3/5		
+BF	A.6, $addr20	31 65 adr	3/5		3/5	3/5		
+BF	A.7, $addr20	31 75 adr	3/5		3/5	3/5		
+BF	PSW.0, $addr20	31 84 FA adr	3/5		3/5	3/5		
+BF	PSW.1, $addr20	31 94 FA adr	3/5		3/5	3/5		
+BF	PSW.2, $addr20	31 A4 FA adr	3/5		3/5	3/5		
+BF	PSW.3, $addr20	31 B4 FA adr	3/5		3/5	3/5		
+BF	PSW.4, $addr20	31 C4 FA adr	3/5		3/5	3/5		
+BF	PSW.5, $addr20	31 D4 FA adr	3/5		3/5	3/5		
+BF	PSW.6, $addr20	31 E4 FA adr	3/5		3/5	3/5		
+BF	PSW.7, $addr20	31 F4 FA adr	3/5		3/5	3/5		
+BF	[HL].0, $addr20	31 85 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BF	[HL].1, $addr20	31 95 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BF	[HL].2, $addr20	31 A5 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BF	[HL].3, $addr20	31 B5 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BF	[HL].4, $addr20	31 C5 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BF	[HL].5, $addr20	31 D5 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BF	[HL].6, $addr20	31 E5 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BF	[HL].7, $addr20	31 F5 adr	3/5	6/7	3/5	3/5	6/7	6/7
+BF	ES:[HL].0, $addr20	11 31 85 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BF	ES:[HL].1, $addr20	11 31 95 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BF	ES:[HL].2, $addr20	11 31 A5 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BF	ES:[HL].3, $addr20	11 31 B5 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BF	ES:[HL].4, $addr20	11 31 C5 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BF	ES:[HL].5, $addr20	11 31 D5 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BF	ES:[HL].6, $addr20	11 31 E5 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BF	ES:[HL].7, $addr20	11 31 F5 adr	4/6	7/8	4/6	4/6	7/8	7/8
+BTCLR	saddr.0, $addr20	31 00 saddr adr	3/5		3/5	3/5		
+BTCLR	saddr.1, $addr20	31 10 saddr adr	3/5		3/5	3/5		
+BTCLR	saddr.2, $addr20	31 20 saddr adr	3/5		3/5	3/5		
+BTCLR	saddr.3, $addr20	31 30 saddr adr	3/5		3/5	3/5		
+BTCLR	saddr.4, $addr20	31 40 saddr adr	3/5		3/5	3/5		
+BTCLR	saddr.5, $addr20	31 50 saddr adr	3/5		3/5	3/5		
+BTCLR	saddr.6, $addr20	31 60 saddr adr	3/5		3/5	3/5		
+BTCLR	saddr.7, $addr20	31 70 saddr adr	3/5		3/5	3/5		
+BTCLR	sfr.0, $addr20	31 80 sfr adr	3/5		3/5	3/5		
+BTCLR	sfr.1, $addr20	31 90 sfr adr	3/5		3/5	3/5		
+BTCLR	sfr.2, $addr20	31 A0 sfr adr	3/5		3/5	3/5		
+BTCLR	sfr.3, $addr20	31 B0 sfr adr	3/5		3/5	3/5		
+BTCLR	sfr.4, $addr20	31 C0 sfr adr	3/5		3/5	3/5		
+BTCLR	sfr.5, $addr20	31 D0 sfr adr	3/5		3/5	3/5		
+BTCLR	sfr.6, $addr20	31 E0 sfr adr	3/5		3/5	3/5		
+BTCLR	sfr.7, $addr20	31 F0 sfr adr	3/5		3/5	3/5		
+BTCLR	A.0, $addr20	31 01 adr	3/5		3/5	3/5		
+BTCLR	A.1, $addr20	31 11 adr	3/5		3/5	3/5		
+BTCLR	A.2, $addr20	31 21 adr	3/5		3/5	3/5		
+BTCLR	A.3, $addr20	31 31 adr	3/5		3/5	3/5		
+BTCLR	A.4, $addr20	31 41 adr	3/5		3/5	3/5		
+BTCLR	A.5, $addr20	31 51 adr	3/5		3/5	3/5		
+BTCLR	A.6, $addr20	31 61 adr	3/5		3/5	3/5		
+BTCLR	A.7, $addr20	31 71 adr	3/5		3/5	3/5		
+BTCLR	PSW.0, $addr20	31 80 FA adr	3/5		3/5	3/5		
+BTCLR	PSW.1, $addr20	31 90 FA adr	3/5		3/5	3/5		
+BTCLR	PSW.2, $addr20	31 A0 FA adr	3/5		3/5	3/5		
+BTCLR	PSW.3, $addr20	31 B0 FA adr	3/5		3/5	3/5		
+BTCLR	PSW.4, $addr20	31 C0 FA adr	3/5		3/5	3/5		
+BTCLR	PSW.5, $addr20	31 D0 FA adr	3/5		3/5	3/5		
+BTCLR	PSW.6, $addr20	31 E0 FA adr	3/5		3/5	3/5		
+BTCLR	PSW.7, $addr20	31 F0 FA adr	3/5		3/5	3/5		
+BTCLR	[HL].0, $addr20	31 81 adr	3/5		3/5	3/5		
+BTCLR	[HL].1, $addr20	31 91 adr	3/5		3/5	3/5		
+BTCLR	[HL].2, $addr20	31 A1 adr	3/5		3/5	3/5		
+BTCLR	[HL].3, $addr20	31 B1 adr	3/5		3/5	3/5		
+BTCLR	[HL].4, $addr20	31 C1 adr	3/5		3/5	3/5		
+BTCLR	[HL].5, $addr20	31 D1 adr	3/5		3/5	3/5		
+BTCLR	[HL].6, $addr20	31 E1 adr	3/5		3/5	3/5		
+BTCLR	[HL].7, $addr20	31 F1 adr	3/5		3/5	3/5		
+BTCLR	ES:[HL].0, $addr20	11 31 81 adr	4/6		4/6	4/6		
+BTCLR	ES:[HL].1, $addr20	11 31 91 adr	4/6		4/6	4/6		
+BTCLR	ES:[HL].2, $addr20	11 31 A1 adr	4/6		4/6	4/6		
+BTCLR	ES:[HL].3, $addr20	11 31 B1 adr	4/6		4/6	4/6		
+BTCLR	ES:[HL].4, $addr20	11 31 C1 adr	4/6		4/6	4/6		
+BTCLR	ES:[HL].5, $addr20	11 31 D1 adr	4/6		4/6	4/6		
+BTCLR	ES:[HL].6, $addr20	11 31 E1 adr	4/6		4/6	4/6		
+BTCLR	ES:[HL].7, $addr20	11 31 F1 adr	4/6		4/6	4/6		
+SKC		61 C8	1		1	1		
+SKNC		61 D8	1		1	1		
+SKZ		61 E8	1		1	1		
+SKNZ		61 F8	1		1	1		
+SKH		61 E3	1		1	1		
+SKNH		61 F3	1		1	1		
+SEL	RB0	61 CF	1		1			
+SEL	RB1	61 DF	1		1			
+SEL	RB2	61 EF	1		1			
+SEL	RB3	61 FF	1		1			
+NOP		00	1		1	1		
+EI		71 7A FA	4		4	4		
+DI		71 7B FA	4		4	4		
+HALT		61 ED	3		3	3		
+STOP		61 FD	3		3	3		
