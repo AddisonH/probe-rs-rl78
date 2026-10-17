@@ -40,7 +40,7 @@ pub mod registers;
 pub mod sequences;
 
 pub use flash::Rl78Flash;
-pub(crate) use flash::attach_or_recover;
+pub(crate) use flash::{attach_or_recover, code_flash};
 
 #[cfg(test)]
 mod scripted;
@@ -216,6 +216,8 @@ pub struct Rl78CoreState {
     /// The G23's flash boots through the debug stub, so a plain reset leaves the monitor armed.
     /// Read with [`rrm`](Self::rrm), and kept as long.
     boots_armed: Option<bool>,
+    /// Code flash, from the target's memory map.
+    code_flash: Range<u32>,
 }
 
 /// The bytes of the user's RAM that the debugger saved before first overwriting them this halt:
@@ -280,6 +282,10 @@ impl Rl78CoreState {
         Self::default()
     }
 
+    pub(crate) fn set_code_flash(&mut self, code_flash: Range<u32>) {
+        self.code_flash = code_flash;
+    }
+
     pub(crate) fn attached(&mut self, attached: flash::Attached) {
         let (sync, at_boot_rom) = match attached {
             flash::Attached::Running(sync) => (sync, false),
@@ -293,6 +299,7 @@ impl Rl78CoreState {
             breakpoints: std::mem::take(&mut self.breakpoints),
             rrm: self.rrm,
             boots_armed: self.boots_armed,
+            code_flash: self.code_flash.clone(),
             ..Self::default()
         };
     }
@@ -1234,6 +1241,7 @@ impl CoreInterface for Rl78<'_> {
             breakpoints: std::mem::take(&mut self.state.breakpoints),
             rrm: self.state.rrm,
             boots_armed: self.state.boots_armed,
+            code_flash: self.state.code_flash.clone(),
             ..Rl78CoreState::default()
         };
         Ok(())

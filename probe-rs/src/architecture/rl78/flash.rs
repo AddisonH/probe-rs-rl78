@@ -687,7 +687,7 @@ impl Rl78Flash {
     }
 }
 
-fn code_flash(target: &Target) -> Result<Range<u32>, Error> {
+pub(crate) fn code_flash(target: &Target) -> Result<Range<u32>, Error> {
     target
         .memory_map
         .iter()

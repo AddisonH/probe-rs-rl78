@@ -1,5 +1,6 @@
-//! Stops at an exact address with no flash write, from the two execution-address comparators at
-//! `F0081H` and `F0083H`.
+//! Stops at an exact address with no flash write, from the two execution-address comparators: at
+//! `F0081H` and `F0083H` on the G15, and with 20-bit addresses at `F0081H` and `F0089H` on the
+//! G23, whose stop rule is the same (notes §55.15).
 //!
 //! A comparator matches the start of an executed instruction and stops the program at the first
 //! instruction boundary at least four CPU clocks later. So matching an instruction four clocks
@@ -31,9 +32,15 @@ use crate::{BreakpointCause, Error, HaltReason};
 
 const COMPARATORS: u32 = 0xF_0081;
 /// A comparator's reset value: `00001H` is never an instruction's start.
-const OFF: u16 = 0x0001;
+const OFF: u32 = 0x0001;
 /// The highest address a comparator reaches: it has 15 bits.
 const REACH: u32 = 0x8000;
+/// The G23's are an address and a data value and mask, the first comparator's control byte
+/// (`F0088H`, which also holds the step enable) between them; the second's is at `F0720H`. A
+/// control byte of `00H` is an execution match.
+const G23_COMPARATORS_LEN: usize = 15;
+const G23_CONTROL2: u32 = 0xF_0720;
+const G23_OFF: u32 = 0xF_FFFF;
 
 /// The interrupt vectors, after the reset vector and the word at `00002H`.
 const VECTORS: std::ops::Range<u32> = 0x04..0x80;
@@ -104,8 +111,8 @@ impl Rl78<'_> {
     /// Start a run that stops at `target` by comparators. False, having done nothing, when the
     /// code on the way there does not allow it.
     pub(super) fn run_to_by_comparators(&mut self, target: u32) -> Result<bool, Error> {
-        // The G23's comparators are 20-bit, elsewhere, and their timing is not measured.
-        if self.g23() || target >= REACH || self.pc()? as u32 == target {
+        let reach = if self.g23() { 0x10_0000 } else { REACH };
+        if target >= reach || self.pc()? as u32 == target {
             return Ok(false);
         }
         let Some(leg) = self.next_leg(target, &[])? else {
@@ -187,8 +194,11 @@ impl Rl78<'_> {
         let arms = match &leg {
             Leg::Aim { arm: None, path } => return self.step_along(path),
             &Leg::Step { at } => return self.step_branch(at),
-            Leg::Aim { arm: Some(at), .. } => [*at, OFF.into()],
-            Leg::Return { rets, .. } => [rets[0], rets.get(1).copied().unwrap_or(OFF.into())],
+            Leg::Aim { arm: Some(at), .. } => [*at, self.comparator_off()],
+            Leg::Return { rets, .. } => [
+                rets[0],
+                rets.get(1).copied().unwrap_or(self.comparator_off()),
+            ],
         };
         if let Some(plan) = &mut self.state.plan {
             plan.leg = leg;
@@ -578,7 +588,11 @@ impl Rl78<'_> {
     }
 
     fn code_flash(&self) -> std::ops::Range<u32> {
-        0..self.sequence.code_flash_mirror().end
+        if self.state.code_flash.is_empty() {
+            0..self.sequence.code_flash_mirror().end
+        } else {
+            self.state.code_flash.clone()
+        }
     }
 
     /// The instruction at `at`, as the program has it: `None` outside code flash or for bytes
@@ -628,20 +642,33 @@ impl Rl78<'_> {
     }
 
     fn arm(&mut self, at: [u32; 2]) -> Result<(), Error> {
-        let mut regs = [0; 4];
-        regs[..2].copy_from_slice(&(at[0] as u16).to_le_bytes());
-        regs[2..].copy_from_slice(&(at[1] as u16).to_le_bytes());
-        self.interface.write_mem(COMPARATORS, &regs)?;
+        if self.g23() {
+            let mut regs = [0; G23_COMPARATORS_LEN];
+            regs[..3].copy_from_slice(&at[0].to_le_bytes()[..3]);
+            regs[8..11].copy_from_slice(&at[1].to_le_bytes()[..3]);
+            self.interface.write_mem(COMPARATORS, &regs)?;
+            self.interface.write_mem(G23_CONTROL2, &[0, 0])?;
+        } else {
+            let mut regs = [0; 4];
+            regs[..2].copy_from_slice(&(at[0] as u16).to_le_bytes());
+            regs[2..].copy_from_slice(&(at[1] as u16).to_le_bytes());
+            self.interface.write_mem(COMPARATORS, &regs)?;
+        }
         self.state.armed = true;
         Ok(())
     }
 
     pub(super) fn disarm(&mut self) -> Result<(), Error> {
         if self.state.armed {
-            self.arm([OFF.into(), OFF.into()])?;
+            let off = self.comparator_off();
+            self.arm([off, off])?;
             self.state.armed = false;
         }
         Ok(())
+    }
+
+    fn comparator_off(&self) -> u32 {
+        if self.g23() { G23_OFF } else { OFF }
     }
 }
 

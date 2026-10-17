@@ -1,6 +1,7 @@
 //! The RL78 instruction set as far as the debugger needs it: each instruction's length, what it
-//! does to the PC, and its fewest clocks on the S2 core. `isa.tsv` lists every encoding in the
-//! RL78 Family User's Manual: Software, with its clocks on each core.
+//! does to the PC, and its fewest clocks on the S3 core. `isa.tsv` lists every encoding in the
+//! RL78 Family User's Manual: Software, with its clocks on each core; the S2 core's are the same
+//! wherever it has the instruction, and it lacks only the S3's multiply and divide.
 
 use std::{collections::HashMap, sync::LazyLock};
 
@@ -30,7 +31,7 @@ pub(super) enum Flow {
 pub(super) struct Insn {
     pub len: u32,
     pub flow: Flow,
-    /// Clocks on the S2 core, the fewest the instruction can take.
+    /// Clocks, the fewest the instruction can take.
     pub clocks: u8,
     /// An interrupt request is held pending until the next instruction has finished.
     pub holds: bool,
@@ -69,10 +70,10 @@ static TABLE: LazyLock<HashMap<Vec<u8>, Row>> = LazyLock::new(|| {
     table
 });
 
-/// One line of `isa.tsv`, or `None` for an instruction the S2 core does not have.
+/// One line of `isa.tsv`, or `None` for one without clocks.
 fn parse_row(line: &str) -> Option<Option<Row>> {
     let cols: Vec<&str> = line.split('\t').collect();
-    let (mnemonic, operands, opcode, clocks) = (cols[0], cols[1], cols[2], *cols.get(5)?);
+    let (mnemonic, operands, opcode, clocks) = (cols[0], cols[1], cols[2], *cols.get(3)?);
     if clocks.is_empty() {
         return Some(None);
     }

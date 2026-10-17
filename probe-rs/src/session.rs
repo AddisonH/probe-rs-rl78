@@ -578,7 +578,9 @@ impl Session {
             &target,
             permissions,
         )?;
-        cores[0].rl78_state_mut().attached(attached);
+        let state = cores[0].rl78_state_mut();
+        state.attached(attached);
+        state.set_code_flash(crate::architecture::rl78::code_flash(&target)?);
 
         Ok(Session {
             target,
