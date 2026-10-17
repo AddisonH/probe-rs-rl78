@@ -7,8 +7,8 @@
 //!   SPL, SPH, PMC and MEM. 43 bytes in all, PC being four of them. GDB's `rl78` port takes no
 //!   target description, so this order is not negotiable.
 //! - **Current bank**: `AX BC DE HL` and `X A C B E D L H` of whichever bank PSW selects, and a
-//!   20-bit SP. These carry the DWARF numbers the RL78 LLVM backend emits
-//!   (`RL78RegisterInfo.td`), so the unwinder and variable locations resolve against them.
+//!   20-bit SP. These carry the DWARF register numbers RL78 compilers emit, so the unwinder and
+//!   variable locations resolve against them.
 
 use std::sync::LazyLock;
 
@@ -77,7 +77,7 @@ pub const SP: CoreRegister = CoreRegister {
         &[
             RegisterRole::Core("sp"),
             RegisterRole::StackPointer,
-            // The RL78 LLVM backend's frame register is SP.
+            // RL78 code addresses its frame through SP.
             RegisterRole::FramePointer,
         ],
         SP_ID,
@@ -108,7 +108,7 @@ const PAIRS: [CoreRegister; 4] = [
     reg(&[RegisterRole::Core("hl")], PAIR_BASE + 3, Some(41), 16),
 ];
 
-/// Within a bank, R0..R7 are X A C B E D L H [arch:p21].
+/// Within a bank, R0..R7 are X A C B E D L H.
 pub const BANK_REG_NAMES: [&str; 8] = ["x", "a", "c", "b", "e", "d", "l", "h"];
 
 const BYTES: [CoreRegister; 8] = [

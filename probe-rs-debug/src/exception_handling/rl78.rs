@@ -2,9 +2,9 @@
 //!
 //! RL78 has no link register. `CALL` pushes the return address into the low three bytes of a
 //! four-byte slot and leaves the top byte as it was; an interrupt and `BRK` push the interrupted
-//! PSW there instead [g15:p706]. The RL78 LLVM backend describes both with one CIE, CFA = SP + 4
-//! and the program counter (its return address column) at CFA - 4, so the unwind information
-//! finds every return address by itself.
+//! PSW there instead. The compiler describes both with one CIE, CFA = SP + 4 and the program
+//! counter (its return address column) at CFA - 4, so the unwind information finds every return
+//! address by itself.
 //!
 //! What it cannot say is which frames an interrupt entered. Their return address is the
 //! interrupted instruction itself rather than the one after a call, and the byte above it is

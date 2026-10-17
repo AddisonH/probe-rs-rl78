@@ -7,13 +7,10 @@
 //! (session state, operation, response)  -> new session state + result
 //! ```
 //!
-//! so this module holds no transport at all, and is tested with nothing attached. The tests here
-//! take one case per operation; the rl78_debug_re repository also holds this codec to every
-//! distinct request/response pair captured between a host and an RL78/G15.
+//! so this module holds no transport at all, and is tested with nothing attached.
 //!
 //! **Two protocols share this codec.** Protocol B is Renesas's documented flash protocol for the
-//! G10/G15/G1M/G1N. The OCD protocol is undocumented and was recovered from the device ROM. The
-//! same byte means different things in each (`00H` is Protocol B's mode entry and the OCD
+//! G10/G15/G1M/G1N. The OCD protocol is undocumented. The same byte means different things in each (`00H` is Protocol B's mode entry and the OCD
 //! protocol's halt), so every operation is interpreted against [`State::phase`]. Never dispatch
 //! on an opcode alone.
 //!
@@ -75,11 +72,11 @@ pub enum Op {
     Write,
     /// `5BH`: `CALL !!0FFED0H`. With a host routine staged there, this runs it.
     CallKernel,
-    /// `5BH 01H`: Renesas's RAM kernel, byte read. Observed; nothing here drives it.
+    /// `5BH 01H`: byte read through Renesas's RAM kernel. Not used by probe-rs.
     KernelReadBytes,
-    /// `5BH 03H`: Renesas's RAM kernel, word read. Observed; nothing here drives it.
+    /// `5BH 03H`: word read through Renesas's RAM kernel. Not used by probe-rs.
     KernelReadWords,
-    /// `5BH 05H`: Renesas's RAM kernel, flash sequencer. Observed; nothing here drives it.
+    /// `5BH 05H`: flash command through Renesas's RAM kernel. Not used by probe-rs.
     KernelFlashOp,
     /// `5CH B C H L`: load B, C, H and L, then `RETI` out of the monitor.
     Execute,
@@ -102,7 +99,7 @@ pub enum Op {
 }
 
 impl Op {
-    /// The operation's name, as the conformance corpus spells it.
+    /// The operation's name.
     pub fn name(self) -> &'static str {
         self.desc().name
     }
@@ -150,9 +147,8 @@ impl Op {
     }
 }
 
-/// Preconditions come from the corpus, not from intuition: across all its observations every OCD
-/// memory, kernel and run-control op appears only with the session unlocked, and halt appears
-/// only with it locked (it doubles as the post-execute re-entry poke).
+/// Every OCD memory, kernel and run-control op needs the session unlocked. Halt is sent while it
+/// is locked: it doubles as the poke that wakes a monitor that has just re-entered.
 struct OpDesc {
     name: &'static str,
     in_proto_b: bool,
@@ -373,8 +369,7 @@ impl State {
                 Ok(out)
             }
             Op::KernelReadBytes | Op::KernelReadWords => {
-                // The vendor kernel takes a real 16-bit offset within segment ES, not the
-                // F-segment convention of 56H.
+                // The kernel takes a 20-bit address, not the F-segment convention of 56H.
                 if args.addr > 0xF_FFFF {
                     return Err(CodecError::Argument(name));
                 }
@@ -392,7 +387,7 @@ impl State {
                     check_len(args.len, op)?,
                 ])
             }
-            // Parameters are staged in RAM beforehand, so every observation is the same six bytes.
+            // The parameters are staged in RAM beforehand.
             Op::KernelFlashOp => Ok(vec![d.opcode, 0x05, 0, 0, 0, 0]),
             Op::Execute => {
                 // Not "run to address": the resume address was chosen by writing the interrupt
@@ -521,8 +516,8 @@ impl State {
                 }
             }
             Op::Halt => {
-                // CAUTION: a sync nobody asked for is not the answer to a halt. A watchdog reset
-                // produces a byte-identical one (notes section 28.4); the PC tells them apart.
+                // A sync nobody asked for is not the answer to a halt: a watchdog reset produces
+                // a byte-identical one, and only the PC tells them apart.
                 if resp[4] != 0x00 {
                     return Err(CodecError::Protocol(name));
                 }
@@ -548,7 +543,7 @@ impl State {
     }
 }
 
-/// The checksum Protocol B's CRC check commands return [proto_b:p14]: CRC-16/CCITT (polynomial
+/// The checksum Protocol B's CRC check commands return: CRC-16/CCITT (polynomial
 /// 1021H, initial value 0), over memory read in four-byte groups and taken last byte first
 /// within each group.
 pub fn flash_crc(data: &[u8]) -> u16 {
@@ -567,9 +562,7 @@ pub fn flash_crc(data: &[u8]) -> u16 {
 
 #[cfg(test)]
 mod tests {
-    //! One case per operation, with the bytes the RL78/G15 actually exchanges. Section numbers
-    //! are to `g15_ocd_protocol_notes.md` in the rl78_debug_re repository, which also keeps the
-    //! full capture corpus and a runner that holds this codec to it.
+    //! One case per operation, with the bytes the RL78/G15 exchanges.
     use super::*;
 
     fn ocd(locked: bool) -> State {
@@ -603,7 +596,7 @@ mod tests {
     #[test]
     fn enter_ocd_from_the_boot_rom() {
         // CAH is the mode byte that selects the debugger. The five bytes are B, C, H and L at
-        // entry, then the 00H prompt (§16.2): zeros here only because those registers are zero.
+        // entry, then the 00H prompt.
         let mut st = State::new();
         let (sync, _) = exchange(
             &mut st,
@@ -660,7 +653,7 @@ mod tests {
 
     #[test]
     fn memory_is_addressed_in_the_f_segment() {
-        // 56H takes a 16-bit address meaning F0000H + x [arch:p29]: FFFA4H goes out as A4 FF.
+        // 56H takes a 16-bit address meaning F0000H + x: FFFA4H goes out as A4 FF.
         let mut st = ocd(false);
         let a = Args {
             addr: 0xF_FFA4,
@@ -678,7 +671,6 @@ mod tests {
         let (_, data) = exchange(&mut st, Op::Read, &Args::default(), &[0x57], &[0x20]);
         assert_eq!(data, [0x20]);
 
-        // 256 bytes encode as 0.
         let a = Args {
             addr: 0xF_FB00,
             len: 256,
@@ -743,7 +735,7 @@ mod tests {
 
     #[test]
     fn call_gate() {
-        // A bare 5BH is CALL !!0FFED0H; the reply is only the command loop's prompt (§12.3, §46).
+        // A bare 5BH is CALL !!0FFED0H; the reply is only the command loop's prompt.
         let mut st = ocd(false);
         exchange(&mut st, Op::CallKernel, &Args::default(), &[0x5B], &[0x00]);
         assert!(
@@ -754,7 +746,6 @@ mod tests {
 
     #[test]
     fn execute_runs_or_traps() {
-        // 5CH loads B, C, H and L and returns from the interrupt (§18, §23).
         let regs = Sync {
             b: 0x00,
             c: 0x00,
@@ -766,7 +757,7 @@ mod tests {
             ..Args::default()
         };
 
-        // A free run is answered by the echo of L alone (§23.1's resume: 5C 00 00 08 38 -> 38).
+        // A free run is answered by the echo of L alone.
         let mut st = ocd(false);
         let (sync, _) = exchange(
             &mut st,
@@ -800,8 +791,8 @@ mod tests {
 
     #[test]
     fn halt() {
-        // A lone 00H halts a running target (§23.2, §28). Legal while locked: it doubles as the
-        // poke that wakes a monitor that has just re-entered.
+        // Legal while locked: a 00H doubles as the poke that wakes a monitor that has just
+        // re-entered.
         let mut st = ocd(true);
         let (sync, _) = exchange(
             &mut st,
@@ -827,7 +818,6 @@ mod tests {
 
     #[test]
     fn the_same_byte_in_two_protocols() {
-        // 00H is Protocol B's mode entry in one phase and the debugger's halt in the other.
         let a = Args::default();
         assert_eq!(State::new().encode(Op::PbModeEntry, &a).unwrap(), [0x00]);
         assert_eq!(ocd(true).encode(Op::Halt, &a).unwrap(), [0x00]);
@@ -843,8 +833,8 @@ mod tests {
 
     #[test]
     fn flash_crc_matches_the_manuals_table() {
-        // [proto_b:p14] `CRC16_Tab`: from a zero CRC, one byte b gives entry b. A group is taken
-        // last byte first, so b leads its group to come last.
+        // Entries of the Protocol B manual's `CRC16_Tab`: from a zero CRC, one byte b gives
+        // entry b. A group is taken last byte first, so b leads its group to come last.
         for (b, entry) in [
             (0x01, 0x1021),
             (0x80, 0x9188),
@@ -858,8 +848,8 @@ mod tests {
 
     #[test]
     fn protocol_b_write_after_erase() {
-        // [proto_b]: 60H answers ACK and the flash size in 256-byte units, minus one (1FH: 8 KB),
-        // then four-byte groups follow with no opcode of their own.
+        // 60H answers ACK and the flash size in 256-byte units, minus one (1FH: 8 KB), then
+        // four-byte groups follow with no opcode of their own.
         let mut st = State::new();
         exchange(&mut st, Op::PbModeEntry, &Args::default(), &[0x00], &[0x36]);
         let group = [0xEA, 0x00, 0x00, 0xFB];
@@ -886,8 +876,7 @@ mod tests {
 
     #[test]
     fn vendor_kernel_reads() {
-        // Renesas's RAM kernel takes a true ES:addr16 and answers data then a 00H prompt (§11).
-        // Nothing drives it any more; the encoding is kept because the captures are full of it.
+        // Renesas's RAM kernel takes a 20-bit address and answers data then a 00H prompt.
         let mut st = ocd(false);
         let a = Args {
             addr: 0x0_00C4,
@@ -908,7 +897,7 @@ mod tests {
 
     #[test]
     fn pseudo_rrm_commits_are_gated() {
-        // The nibble counter decides which commit is admissible (§30).
+        // The nibble counter decides which commit is admissible.
         let a = Args::default();
         let mut st = ocd(true);
         for n in [0xF, 0xF, 0xB, 0x0] {

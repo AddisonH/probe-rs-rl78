@@ -48,7 +48,7 @@ pub struct UnitInfo {
     // Return PC => DW_TAG_call_site_parameter (DW_AT_location bytes, DW_AT_call_value)
     call_sites: HashMap<u64, Vec<CallSiteParameter>>,
     /// Where a pointer narrower than an address points. An RL78 near data pointer is 16 bits
-    /// and addresses `F0000H` plus its value [arch:p29].
+    /// and addresses `F0000H` plus its value.
     pub(crate) near_pointer_base: u64,
 }
 

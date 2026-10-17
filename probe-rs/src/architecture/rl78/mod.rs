@@ -15,8 +15,6 @@
 //!   is read by a short routine staged in RAM and called through the monitor's call gate. That
 //!   RAM belongs to the user's program, so the bytes a routine overwrites are saved before it
 //!   runs and put back before the target runs again.
-//!
-//! Section references (§N) are to `g15_ocd_protocol_notes.md` in the rl78_debug_re repository.
 
 use std::{
     collections::BTreeMap,
@@ -49,8 +47,7 @@ use protocol::Sync;
 use registers::*;
 use sequences::Rl78DebugSequence;
 
-/// All of RAM on the RL78/G15: `FFB00H`–`FFEFFH`. The debugger borrows parts of it, and every
-/// byte belongs to the user's program.
+/// All of RAM on the RL78/G15: `FFB00H`–`FFEFFH`.
 const RAM_BASE: u32 = 0xF_FB00;
 const RAM_SIZE: usize = 0x400;
 
@@ -61,13 +58,13 @@ const RAM_SIZE: usize = 0x400;
 const STUB_BASE: u32 = 0xF_FB00;
 const STUB_MAX: usize = 0xF0;
 
-/// A bare `5BH` makes the ROM `CALL !!0FFED0H` (§12.3): an ordinary call gate. A branch to the
-/// staged routine goes here, and the routine returns with `RET`.
+/// A bare `5BH` makes the ROM `CALL !!0FFED0H`. A branch to the staged routine goes here, and the
+/// routine returns with `RET`.
 const CALL_GATE: u32 = 0xF_FED0;
 
 /// Where a routine leaves its results (`5BH` replies only with the `00H` prompt, so results come
 /// back through an ordinary read) and the flash routine finds its data, with its operands in the
-/// [`STUB_BUF_BELOW`] bytes under it. Chosen per halt, clear of the monitor's stack (§49.3): low
+/// [`STUB_BUF_BELOW`] bytes under it. Chosen per halt, clear of the monitor's stack: low
 /// by preference, above the boot ROM's stack (`FFC00H` down, on a fresh attach) and below where
 /// programs keep theirs (the top of RAM); high when the program's stack is low.
 const STUB_BUFS: [u32; 2] = [0xF_FC10, 0xF_FDC0];
@@ -80,32 +77,28 @@ const STUB_BUF_BELOW: usize = 10;
 /// alignment, so a block never reaches past the area it was asked for into reserved space.
 const CODE_BLOCK: u32 = 64;
 
-/// How long a routine behind the call gate gets to return, unless it says otherwise.
 const STUB_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Bytes below the monitor's SP that its own calls use while a routine runs: the call gate's
 /// return address, and the ROM's transmit routine after it.
 const MONITOR_STACK_BELOW: u32 = 8;
 
-/// The four register banks, bank 3 first: bank 0 sits at the high end [arch:p20].
+/// The four register banks, bank 3 first.
 const BANKS_ADDR: u32 = 0xF_FEE0;
-/// SPL, SPH [arch:p23]
 const SP_ADDR: u32 = 0xF_FFF8;
 /// CS, ES, PMC and MEM are contiguous.
 const CS_ADDR: u32 = 0xF_FFFC;
 
 /// The interrupt frame the monitor leaves at SP: the AX its prologue pushed, then the PC and PSW
 /// the debug interrupt pushed. HL is pushed too, but popped again before the command loop runs,
-/// so by the time the host reads SP it points at the AX slot (§18).
+/// so by the time the host reads SP it points at the AX slot.
 const FRAME_LEN: usize = 6;
 
-/// PSW register-bank select bits [arch:p16].
 const PSW_RBS0: u8 = 1 << 3;
 const PSW_RBS1: u8 = 1 << 5;
 
-/// Copy `count` bytes from `ES:[HL]` to the buffer. This is what Renesas's 365-byte RAM kernel
-/// existed to provide, in 19 bytes: reaching below `F0000H`, which the monitor's own read cannot
-/// do because it addresses through `[HL]` with 16-bit addressing (§5.1).
+/// Copy `count` bytes from `ES:[HL]` to the buffer, to reach below `F0000H`, which the monitor's
+/// own read cannot: it addresses through `[HL]` with 16-bit addressing.
 ///
 /// ```text
 ///         mov   es, #seg          ; [1]
@@ -151,7 +144,6 @@ struct Context {
     monitor_sp: u16,
     /// Raw registers, in GDB order.
     regs: [u32; NUM_RAW],
-    /// Which raw registers the debugger changed.
     dirty: u64,
 }
 
@@ -183,9 +175,7 @@ impl Context {
 /// RL78 state that outlives a [`Rl78`] handle.
 #[derive(Debug, Default)]
 pub struct Rl78CoreState {
-    /// The target is executing user code.
     running: bool,
-    /// Why it last stopped.
     halt_reason: Option<HaltReason>,
     /// B, C, H and L as the monitor reported them at the last entry.
     sync: Sync,
@@ -197,7 +187,6 @@ pub struct Rl78CoreState {
     code_cache: BTreeMap<u32, [u8; CODE_BLOCK as usize]>,
     /// The flash routine is staged at `STUB_BASE`, with the call gate pointing at it.
     flash_resident: bool,
-    /// Where the routines' buffer is this halt.
     stub_buf: Option<u32>,
     /// `FSSET` for the clock the program left running, read once per halt.
     fsset: Option<u8>,
@@ -216,13 +205,11 @@ pub struct Rl78CoreState {
 
 /// The bytes of the user's RAM that the debugger saved before first overwriting them this halt:
 /// a routine's code, the call gate, the part of the buffer the routine fills, and bank 0's
-/// registers, which the routines use. Only those, so that a halt that runs one small routine
-/// does not pay for all of RAM twice.
+/// registers, which the routines use.
 #[derive(Debug, Default)]
 struct RamShadow(BTreeMap<u32, u8>);
 
 impl RamShadow {
-    /// The parts of `range` not saved yet.
     fn unsaved(&self, range: Range<u32>) -> Vec<Range<u32>> {
         let mut runs: Vec<Range<u32>> = Vec::new();
         for a in range.filter(|a| !self.0.contains_key(a)) {
@@ -278,7 +265,6 @@ impl Rl78CoreState {
         Self::default()
     }
 
-    /// The probe has just attached: the target is halted in the monitor.
     pub(crate) fn attached(&mut self, attached: flash::Attached) {
         let (sync, at_boot_rom) = match attached {
             flash::Attached::Running(sync) => (sync, false),
@@ -344,7 +330,7 @@ impl<'probe> Rl78<'probe> {
     /// |---|---|
     /// | X, A | the interrupt frame: the prologue pushed AX after `SEL RB0` |
     /// | B, C, H, L | the entry sync: the monitor sends them because it is about to overwrite them |
-    /// | D, E | RAM: the monitor's command loop never touches DE (§27.2, from the ROM) |
+    /// | D, E | RAM: the monitor's command loop never touches DE |
     ///
     /// That holds whichever bank the program was using, since the prologue saves bank 0 in every
     /// case. Banks 1 to 3 are untouched and read straight from RAM. PSW and SP come from the
@@ -406,7 +392,7 @@ impl<'probe> Rl78<'probe> {
     /// B, C, H and L to load on the way out.
     fn store_context(&mut self) -> Result<Sync, Error> {
         // RAM first: the register banks and the frame live inside it, so restoring it afterwards
-        // would undo them. e2 studio uses the same order: RAM, banks, ES, then 5CH.
+        // would undo them.
         self.ram_return()?;
 
         let Some(ctx) = self.state.context.take() else {
@@ -491,9 +477,7 @@ impl<'probe> Rl78<'probe> {
     }
 
     /// Save the user's RAM in `range` before the debugger overwrites it, once per halt and only
-    /// the bytes not saved already. Lazily, so that a session that never runs a routine never
-    /// pays for it: then the only user memory disturbed is the debug interrupt frame, which is
-    /// exactly what Renesas reserves [g15:p687].
+    /// the bytes not saved already.
     fn ram_borrow(&mut self, range: Range<u32>) -> Result<(), Error> {
         let range = range.start.max(RAM_BASE)..range.end.min(RAM_BASE + RAM_SIZE as u32);
         for run in self.state.ram_shadow.unsaved(range) {
@@ -565,7 +549,6 @@ impl<'probe> Rl78<'probe> {
         Ok(buf)
     }
 
-    /// Put a routine in RAM behind the monitor's call gate.
     fn stage_stub(&mut self, code: &[u8]) -> Result<(), Error> {
         if code.is_empty() || code.len() > STUB_MAX {
             return Err(Error::Other(format!(
@@ -695,8 +678,7 @@ impl<'probe> Rl78<'probe> {
         }
         self.read_bytes_raw(address, data)?;
         self.state.breakpoints.hide_traps(address as u32, data);
-        // The register banks as the program has them. In RAM, bank 0 is the monitor's scratch
-        // while it runs (§47.4).
+        // In RAM, bank 0 is the monitor's scratch while it runs.
         if let Some((d, offsets)) = banks_overlap(address as u32, data.len()) {
             let ctx = self.load_context()?;
             for (byte, o) in data[d].iter_mut().zip(offsets) {
@@ -744,7 +726,7 @@ impl<'probe> Rl78<'probe> {
         }
         // The register banks are registers: they go into the context, which puts them where
         // they belong on the way out. Written directly, bank 0 would land in the monitor's own
-        // registers while its write loop runs on them (HL and B, §12.3).
+        // registers while its write loop runs on them.
         if let Some((d, offsets)) = banks_overlap(start, data.len()) {
             self.write_memory(start, &data[..d.start])?;
             let ctx = self.load_context()?;
@@ -803,7 +785,7 @@ impl Rl78<'_> {
         }
     }
 
-    /// Pseudo-RRM is the program's to enable, with a block pointer at `00002H` (§30). The
+    /// Pseudo-RRM is the program's to enable, with a block pointer at `00002H`. The
     /// debugger does not read the vector: it tries, and a ROM with the path off says nothing to
     /// the commands, none of which is the halt byte. The first silence settles it until the
     /// program is reflashed.
@@ -991,9 +973,8 @@ impl CoreInterface for Rl78<'_> {
         self.state.resume_at_detach = false;
         if self.in_boot_rom() {
             // Resuming here would only run the boot ROM's idle loop, with the watchdog running
-            // whatever the option byte says (§47.1) and the part about 5x slow (§48.3). Boot the
-            // program instead: a normal reset, after which the debug stub in flash arms the
-            // monitor again (§31).
+            // whatever the option byte says. Boot the program instead: a normal reset, after
+            // which the debug stub in flash arms the monitor again.
             tracing::info!("rl78: continuing from the attach: booting the program");
             return self.reset();
         }
@@ -1094,8 +1075,7 @@ impl CoreInterface for Rl78<'_> {
     }
 
     fn available_breakpoint_units(&mut self) -> Result<u32, Error> {
-        // The G15 has no breakpoint hardware (§42): these are FFH traps, put in place when the
-        // target next runs or steps.
+        // FFH traps, put in place when the target next runs or steps.
         Ok(breakpoints::UNITS as u32)
     }
 
@@ -1171,7 +1151,6 @@ impl CoreInterface for Rl78<'_> {
     }
 
     fn debug_core_stop(&mut self) -> Result<(), Error> {
-        // Leave no trap behind in the user's flash.
         self.lift_all_breakpoints()?;
         // A program the attach halted, for a memory read say, runs on as it was found. On Arm a
         // read would not have stopped it at all.
@@ -1201,7 +1180,6 @@ mod tests {
         let mut shadow = RamShadow::default();
         assert_eq!(shadow.unsaved(0xF_FB00..0xF_FB04), vec![0xF_FB00..0xF_FB04]);
         shadow.save(0xF_FB01, &[1, 2]);
-        // Only the gaps are left to save.
         assert_eq!(
             shadow.unsaved(0xF_FB00..0xF_FB05),
             [0xF_FB00..0xF_FB01, 0xF_FB03..0xF_FB05]

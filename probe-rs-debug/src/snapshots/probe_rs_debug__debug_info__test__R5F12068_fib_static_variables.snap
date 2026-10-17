@@ -16,7 +16,7 @@ Child Variables:
           args: []
       value: blinker @ 0x000FFB00
       source_location:
-        path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+        path: /g15-debug/main.c
         line: 30
         column: ~
         address: ~
@@ -31,7 +31,7 @@ Child Variables:
                   - Base: unsigned short
           value: "25"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 24
             column: ~
             address: ~
@@ -45,7 +45,7 @@ Child Variables:
                   - Base: unsigned short
           value: "0"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 25
             column: ~
             address: ~
@@ -58,7 +58,7 @@ Child Variables:
               args: []
           value: LED_OFF
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 26
             column: ~
             address: ~
@@ -75,7 +75,7 @@ Child Variables:
               count: 4
           value: "uint8_t[4] = [0, 0, 0, 0]"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 27
             column: ~
             address: ~
@@ -90,7 +90,7 @@ Child Variables:
                       - Base: unsigned char
               value: "0"
               source_location:
-                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                path: /g15-debug/main.c
                 line: 27
                 column: ~
                 address: ~
@@ -104,7 +104,7 @@ Child Variables:
                       - Base: unsigned char
               value: "0"
               source_location:
-                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                path: /g15-debug/main.c
                 line: 27
                 column: ~
                 address: ~
@@ -118,7 +118,7 @@ Child Variables:
                       - Base: unsigned char
               value: "0"
               source_location:
-                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                path: /g15-debug/main.c
                 line: 27
                 column: ~
                 address: ~
@@ -132,7 +132,7 @@ Child Variables:
                       - Base: unsigned char
               value: "0"
               source_location:
-                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                path: /g15-debug/main.c
                 line: 27
                 column: ~
                 address: ~
@@ -148,7 +148,7 @@ Child Variables:
                   - Base: unsigned short
       value: "0"
       source_location:
-        path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+        path: /g15-debug/main.c
         line: 31
         column: ~
         address: ~
@@ -165,7 +165,7 @@ Child Variables:
           count: 8
       value: "uint16_t[8] = [0, 1, 1, 2, 3, 5, 8, 0]"
       source_location:
-        path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+        path: /g15-debug/main.c
         line: 32
         column: ~
         address: ~
@@ -180,7 +180,7 @@ Child Variables:
                   - Base: unsigned short
           value: "0"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 32
             column: ~
             address: ~
@@ -194,7 +194,7 @@ Child Variables:
                   - Base: unsigned short
           value: "1"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 32
             column: ~
             address: ~
@@ -208,7 +208,7 @@ Child Variables:
                   - Base: unsigned short
           value: "1"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 32
             column: ~
             address: ~
@@ -222,7 +222,7 @@ Child Variables:
                   - Base: unsigned short
           value: "2"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 32
             column: ~
             address: ~
@@ -236,7 +236,7 @@ Child Variables:
                   - Base: unsigned short
           value: "3"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 32
             column: ~
             address: ~
@@ -250,7 +250,7 @@ Child Variables:
                   - Base: unsigned short
           value: "5"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 32
             column: ~
             address: ~
@@ -264,7 +264,7 @@ Child Variables:
                   - Base: unsigned short
           value: "8"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 32
             column: ~
             address: ~
@@ -278,7 +278,7 @@ Child Variables:
                   - Base: unsigned short
           value: "0"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 32
             column: ~
             address: ~

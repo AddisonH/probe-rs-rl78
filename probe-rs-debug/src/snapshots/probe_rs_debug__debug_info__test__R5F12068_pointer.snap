@@ -4,7 +4,7 @@ expression: stack_frames
 ---
 - function_name: record
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 48
     column:
       Column: 2
@@ -508,7 +508,7 @@ expression: stack_frames
               Other: blinker
           value: blinker* @ 0x0000FB00
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 44
             column: ~
             address: ~
@@ -523,7 +523,7 @@ expression: stack_frames
                       - Base: unsigned short
               value: "25"
               source_location:
-                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                path: /g15-debug/main.c
                 line: 24
                 column: ~
                 address: ~
@@ -537,7 +537,7 @@ expression: stack_frames
                       - Base: unsigned short
               value: "0"
               source_location:
-                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                path: /g15-debug/main.c
                 line: 25
                 column: ~
                 address: ~
@@ -550,7 +550,7 @@ expression: stack_frames
                   args: []
               value: LED_ON
               source_location:
-                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                path: /g15-debug/main.c
                 line: 26
                 column: ~
                 address: ~
@@ -567,7 +567,7 @@ expression: stack_frames
                   count: 4
               value: "uint8_t[4] = [1, 0, 0, 0]"
               source_location:
-                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                path: /g15-debug/main.c
                 line: 27
                 column: ~
                 address: ~
@@ -582,7 +582,7 @@ expression: stack_frames
                           - Base: unsigned char
                   value: "1"
                   source_location:
-                    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                    path: /g15-debug/main.c
                     line: 27
                     column: ~
                     address: ~
@@ -596,7 +596,7 @@ expression: stack_frames
                           - Base: unsigned char
                   value: "0"
                   source_location:
-                    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                    path: /g15-debug/main.c
                     line: 27
                     column: ~
                     address: ~
@@ -610,7 +610,7 @@ expression: stack_frames
                           - Base: unsigned char
                   value: "0"
                   source_location:
-                    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                    path: /g15-debug/main.c
                     line: 27
                     column: ~
                     address: ~
@@ -624,7 +624,7 @@ expression: stack_frames
                           - Base: unsigned char
                   value: "0"
                   source_location:
-                    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                    path: /g15-debug/main.c
                     line: 27
                     column: ~
                     address: ~
@@ -637,7 +637,7 @@ expression: stack_frames
               args: []
           value: LED_ON
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 44
             column: ~
             address: ~
@@ -651,14 +651,14 @@ expression: stack_frames
                   - Base: unsigned char
           value: "0"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 46
             column: ~
             address: ~
   canonical_frame_address: 1048070
 - function_name: toggle
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 59
     column:
       Column: 2
@@ -1111,7 +1111,7 @@ expression: stack_frames
               Other: blinker
           value: blinker* @ 0x0000FB00
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 51
             column: ~
             address: ~
@@ -1126,7 +1126,7 @@ expression: stack_frames
                       - Base: unsigned short
               value: "25"
               source_location:
-                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                path: /g15-debug/main.c
                 line: 24
                 column: ~
                 address: ~
@@ -1140,7 +1140,7 @@ expression: stack_frames
                       - Base: unsigned short
               value: "0"
               source_location:
-                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                path: /g15-debug/main.c
                 line: 25
                 column: ~
                 address: ~
@@ -1153,7 +1153,7 @@ expression: stack_frames
                   args: []
               value: LED_ON
               source_location:
-                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                path: /g15-debug/main.c
                 line: 26
                 column: ~
                 address: ~
@@ -1170,7 +1170,7 @@ expression: stack_frames
                   count: 4
               value: "uint8_t[4] = [1, 0, 0, 0]"
               source_location:
-                path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                path: /g15-debug/main.c
                 line: 27
                 column: ~
                 address: ~
@@ -1185,7 +1185,7 @@ expression: stack_frames
                           - Base: unsigned char
                   value: "1"
                   source_location:
-                    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                    path: /g15-debug/main.c
                     line: 27
                     column: ~
                     address: ~
@@ -1199,7 +1199,7 @@ expression: stack_frames
                           - Base: unsigned char
                   value: "0"
                   source_location:
-                    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                    path: /g15-debug/main.c
                     line: 27
                     column: ~
                     address: ~
@@ -1213,7 +1213,7 @@ expression: stack_frames
                           - Base: unsigned char
                   value: "0"
                   source_location:
-                    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                    path: /g15-debug/main.c
                     line: 27
                     column: ~
                     address: ~
@@ -1227,7 +1227,7 @@ expression: stack_frames
                           - Base: unsigned char
                   value: "0"
                   source_location:
-                    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+                    path: /g15-debug/main.c
                     line: 27
                     column: ~
                     address: ~
@@ -1240,14 +1240,14 @@ expression: stack_frames
               args: []
           value: LED_ON
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 53
             column: ~
             address: ~
   canonical_frame_address: 1048078
 - function_name: main
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 91
     column:
       Column: 4
@@ -1703,7 +1703,7 @@ expression: stack_frames
                   - Base: unsigned short
           value: "25"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 85
             column: ~
             address: ~
@@ -1717,14 +1717,14 @@ expression: stack_frames
                   - Base: unsigned short
           value: "25"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 88
             column: ~
             address: ~
   canonical_frame_address: 1048090
 - function_name: __start
   source_location:
-    path: /home/addison/.cache/claude-scratch/rl-rs/pico-ml/../../../../workspace/rl-rs/picolibc/picocrt/machine/rl78/../../crt0.h
+    path: /picolibc/picocrt/machine/rl78/../../crt0.h
     line: 169
     column:
       Column: 15
@@ -2172,7 +2172,7 @@ expression: stack_frames
   canonical_frame_address: 1048096
 - function_name: _cstart
   source_location:
-    path: /home/addison/.cache/claude-scratch/rl-rs/pico-ml/../../../../workspace/rl-rs/picolibc/picocrt/machine/rl78/crt0.c
+    path: /picolibc/picocrt/machine/rl78/crt0.c
     line: 144
     column:
       Column: 5

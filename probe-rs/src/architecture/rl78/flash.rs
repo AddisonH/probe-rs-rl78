@@ -1,5 +1,5 @@
 //! Code flash programming during a debug session: self-programming, driven by a routine behind
-//! the monitor's call gate (§7.1, §46; the procedure is [g15:p678]–[g15:p680]).
+//! the monitor's call gate.
 //!
 //! The flash sequencer writes one 4-byte word, or erases a run of 1 KB blocks, per command, and
 //! the CPU waits while it works. The routine below runs one command over up to 64 words from RAM.
@@ -21,7 +21,7 @@ use crate::{
     session::{Permissions, Session},
 };
 
-/// Run one flash sequencer command (§7.1). Assembled with rl-rs's `llvm-mc`:
+/// Run one flash sequencer command:
 ///
 /// ```text
 ///         mov   !FSSQ, #00H         ; stop the sequencer
@@ -52,7 +52,7 @@ use crate::{
 ///         ret
 /// ```
 ///
-/// The sequencer's registers are 2nd SFRs at `F00BEH`–`F00CBH` [g15:p74], reached by `!addr16`.
+/// The sequencer's registers are 2nd SFRs at `F00BEH`–`F00CBH`, reached by `!addr16`.
 const STUB_FLASH: [u8; 133] = [
     0xCF, 0xC1, 0x00, 0x00, //       mov  !FSSQ, #00H
     0x8F, 0xC7, 0x00, //       w0:   mov  a, !FSASTH
@@ -108,8 +108,7 @@ const STUB_FLASH: [u8; 133] = [
     0xD7, //                         ret
 ];
 
-/// The routine's operands, directly below its data. From `P_FSSET` on they are laid out as
-/// Renesas's RAM kernel had them (§7.2).
+/// The routine's operands, directly below its data.
 const PARAMS_LEN: usize = STUB_BUF_BELOW;
 const P_STATUS: usize = 0;
 const P_WORDS: usize = 1;
@@ -138,25 +137,23 @@ fn flash_stub(buf: u32) -> [u8; STUB_FLASH.len()] {
 /// What the status byte holds until the routine overwrites it.
 const NOT_RUN: u8 = 0xFF;
 
-/// FSSQ: start a write of one word, or a block erase [g15:p676].
+/// FSSQ: start a write of one word, or a block erase.
 const FSSQ_WRITE: u8 = 0x81;
 const FSSQ_ERASE: u8 = 0x84;
-/// FLPMC: code flash, write/erase enabled, self-programming mode [g15:p674].
+/// FLPMC: code flash, write/erase enabled, self-programming mode.
 const FLPMC_CODE: u8 = 0x02;
 
-/// A code flash block, the erase unit [g15:p672].
+/// A code flash block, the erase unit.
 const BLOCK: u32 = 0x400;
 const WORD: usize = 4;
 
-/// System clock control: MCS set means the CPU runs from the high-speed system clock [g15:p135].
+/// System clock control: MCS set means the CPU runs from the high-speed system clock.
 const CKC: u32 = 0xF_FFA4;
 const CKC_MCS: u8 = 1 << 5;
-/// The on-chip oscillator's frequency [g15:p145].
 const HOCODIV: u32 = 0xF_00A8;
 
-/// The security ID's place in code flash [g15:p687].
 const SECURITY_ID: Range<usize> = 0xC4..0xC4 + SECURITY_ID_LEN;
-/// The on-chip debug option byte; bit 7 is OCDENSET [g15:p652].
+/// The on-chip debug option byte; bit 7 is OCDENSET.
 const OCD_OPTION: usize = 0xC3;
 
 /// Generous: the sequencer's own times are in the datasheet, not the hardware manual, and a call
@@ -165,9 +162,9 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(1);
 const ERASE_TIMEOUT_PER_BLOCK: Duration = Duration::from_secs(1);
 
 impl Rl78<'_> {
-    /// `FSSET` for the CPU clock: its frequency in MHz, rounded up, less one [g15:p675]. Read
-    /// rather than assumed, because the program may have changed the clock, and the sequencer
-    /// times its pulses by it. Renesas's kernel stages `0FH` at 16 MHz.
+    /// `FSSET` for the CPU clock: its frequency in MHz, rounded up, less one. Read rather than
+    /// assumed, because the program may have changed the clock, and the sequencer times its
+    /// pulses by it.
     fn flash_fsset(&mut self) -> Result<u8, Error> {
         if let Some(fsset) = self.state.fsset {
             return Ok(fsset);
@@ -221,7 +218,6 @@ impl Rl78<'_> {
             self.state.flash_resident = true;
         }
 
-        // Flash is about to change under anything read from it this halt.
         self.state.code_cache.clear();
         let operands = params..params + (PARAMS_LEN + data.len()) as u32;
         self.ram_borrow(operands)?;
@@ -257,7 +253,7 @@ impl Rl78<'_> {
     }
 
     /// Erase the code flash blocks that `range` touches, in one command. The sequencer takes the
-    /// first block's start and the last block's start with bits 9-2 set [g15:p671].
+    /// first block's start and the last block's start with bits 9-2 set.
     pub(super) fn flash_erase(&mut self, range: Range<u32>) -> Result<(), Error> {
         let first = range.start & !(BLOCK - 1);
         let last = (range.end - 1) & !(BLOCK - 1);
@@ -306,10 +302,9 @@ impl Rl78<'_> {
 /// where the image leaves the bytes erased:
 ///
 /// - **The session's security ID** at `000C4H`–`000CDH`. A toolchain leaves it erased, which
-///   makes the part's ID ten `FFH` and locks out the next attach (§48.1); e2 studio fills it the
-///   same way.
-/// - **The debug stub** at `000CEH`–`000D7H` (§31.3, §46.5), with the reset vector pointed at it
-///   and `000C3H` bits 3 and 1 set (§31.5). It arms the monitor at every boot and branches to the
+///   makes the part's ID ten `FFH` and locks out the next attach.
+/// - **The debug stub** at `000CEH`–`000D7H`, with the reset vector pointed at it and `000C3H`
+///   bits 3 and 1 set. It arms the monitor at every boot and branches to the
 ///   image's own entry, so the program runs after a normal reset with its own watchdog setting,
 ///   and a `00H` on TOOL0 halts it. `PROBE_RS_RL78_DEBUG_STUB=0` leaves it out, for an image that
 ///   ships: an armed monitor halts the part on any byte that reaches TOOL0.
@@ -318,11 +313,10 @@ pub struct Rl78Flash {
     debug_stub: bool,
 }
 
-/// `MOV !F0080H,#0C5H` / `MOV FFFAFH,#40H` / `BR !entry` (§31.3), without the entry.
+/// `MOV !F0080H,#0C5H` / `MOV FFFAFH,#40H` / `BR !entry`, without the entry.
 pub(super) const DEBUG_STUB: [u8; 8] = [0xCF, 0x80, 0x00, 0xC5, 0xCE, 0xAF, 0x40, 0xED];
 pub(super) const DEBUG_STUB_AT: usize = 0xCE;
 pub(super) const DEBUG_STUB_LEN: usize = DEBUG_STUB.len() + 2;
-/// The first page must reach past the stub for any of this to apply.
 const HEAD: usize = DEBUG_STUB_AT + DEBUG_STUB_LEN;
 
 impl Rl78Flash {
@@ -401,7 +395,6 @@ impl Rl78Flash {
     }
 }
 
-/// The code flash: the NVM region at 00000H.
 fn code_flash(target: &Target) -> Result<Range<u32>, Error> {
     target
         .memory_map
@@ -416,9 +409,8 @@ fn code_flash(target: &Target) -> Result<Range<u32>, Error> {
 }
 
 /// Erased code flash the debugger can attach to: the debug stub with the reset vector on it,
-/// the session's security ID, and the option bytes e2 studio writes with them (§4, §31). This is
-/// e2 studio's own monitor image: the stub branches to `0FFFFH`, so the part stops in the
-/// monitor whenever it boots, until a program is flashed.
+/// the session's security ID, and option bytes that enable debugging. The stub branches to
+/// `0FFFFH`, so the part stops in the monitor whenever it boots, until a program is flashed.
 fn monitor_image(size: usize, security_id: [u8; SECURITY_ID_LEN]) -> Vec<u8> {
     let mut image = vec![0xFF; size];
     image[..2].copy_from_slice(&(DEBUG_STUB_AT as u16).to_le_bytes());
@@ -466,7 +458,7 @@ pub(crate) fn attach_or_recover(
 pub(crate) enum Attached {
     /// A program running with the monitor armed, halted where it was.
     Running(Sync),
-    /// Reset into the monitor: the boot ROM's idle loop, the program not started (§27.5).
+    /// Reset into the monitor: the boot ROM's idle loop, the program not started.
     UnderReset(Sync),
 }
 
@@ -585,7 +577,6 @@ mod tests {
         assert_eq!(out[..2], page[..2], "no stub when asked");
         assert_eq!(out[SECURITY_ID], ID, "the ID all the same");
 
-        // Not the first page.
         let tail = vec![0xFF; 0x100];
         assert_eq!(
             *Rl78Flash { debug_stub: true }.debug_image(0x100, &tail, ID, false),

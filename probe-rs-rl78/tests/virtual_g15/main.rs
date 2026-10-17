@@ -1,9 +1,8 @@
 //! The RL78 driver end to end against the virtual G15 ([`model`]): a probe-rs session over
 //! the same `ComProbe` the FT232R uses, with a simulated part on the other end of the line.
 //!
-//! Each test is a behaviour first seen on the G15 FPB; section numbers are to
-//! `g15_ocd_protocol_notes.md` in rl78_debug_re. The programs are assembled with the RL78 LLVM
-//! backend's `llvm-mc`; the listings are next to the bytes.
+//! Each test is a behaviour first seen on the G15 FPB. The programs' listings are next to their
+//! bytes.
 
 mod model;
 
@@ -131,7 +130,7 @@ fn step_follows_the_program() {
     assert_eq!(counter(&mut core), g15.lock().peek16(COUNTER as u32));
     assert_eq!(g15.lock().peek16(COUNTER as u32), 1, "the INCW ran once");
 
-    // F0085H is sticky across an execute (§23.1): a run after a step must clear it, or it is
+    // F0085H is sticky across an execute: a run after a step must clear it, or it is
     // another step.
     core.run().unwrap();
     g15.run_for_ms(1);
@@ -139,7 +138,7 @@ fn step_follows_the_program() {
     assert!(counter(&mut core) > 100, "ran freely after the steps");
 }
 
-/// §48.2: `5CH` loads B, C, H and L from the host. Resuming with anything but the program's own
+/// `5CH` loads B, C, H and L from the host. Resuming with anything but the program's own
 /// clobbers them; this program would restart its count.
 #[test]
 fn resume_gives_the_program_its_bc_back() {
@@ -163,7 +162,7 @@ fn resume_gives_the_program_its_bc_back() {
     }
 }
 
-/// §47.4: the monitor's prologue is `SEL RB0`, so bank 0's RAM image is its scratch, whichever
+/// The monitor's prologue is `SEL RB0`, so bank 0's RAM image is its scratch, whichever
 /// bank the program used. AX comes back from the frame and B, C, H, L from the sync.
 #[test]
 fn bank_0_is_rebuilt_with_the_program_in_bank_1() {
@@ -193,7 +192,7 @@ fn bank_0_is_rebuilt_with_the_program_in_bank_1() {
 }
 
 /// The register banks are memory (`FFEE0H`-`FFEFFH`), and memory there is the program's
-/// registers. Bank 0's RAM is the monitor's own registers while it runs (§47.4, §12.3), so a
+/// registers. Bank 0's RAM is the monitor's own registers while it runs, so a
 /// direct write would land in the HL and B of the very loop doing the write.
 #[test]
 fn register_banks_through_memory() {
@@ -237,7 +236,7 @@ fn register_banks_through_memory() {
     );
 }
 
-/// An `FFH` traps into the monitor with the address after it in the frame (§24, §27.5). One the
+/// An `FFH` traps into the monitor with the address after it in the frame. One the
 /// program holds itself is a software breakpoint, with the PC on it as on ARM's `BKPT`; moved
 /// past it, the program goes on.
 #[test]
@@ -259,7 +258,7 @@ fn ffh_traps_into_the_monitor() {
     assert_eq!(reg(&mut core, PC_ID), PROG + 3);
 }
 
-/// §47.1: after a `CAH` attach the watchdog runs whatever the option byte says. A program that
+/// After a `CAH` attach the watchdog runs whatever the option byte says. A program that
 /// feeds it keeps running; one that does not is reset, comes back with the monitor disarmed
 /// (no debug stub in flash), and the halt goes unanswered.
 #[test]
@@ -284,7 +283,7 @@ fn watchdog_after_attach() {
     }
 }
 
-/// §47.2: the boot-mode reset asserts RESET before holding TOOL0 low; the other order leaves the
+/// The boot-mode reset asserts RESET before holding TOOL0 low; the other order leaves the
 /// monitor's answer to the break in the line. Attaching repeatedly in one session shows it.
 #[test]
 fn attach_three_times() {
@@ -302,7 +301,7 @@ fn attach_three_times() {
 
 /// The Phase 2 design: the debug stub in the image arms the monitor at every boot, so a normal
 /// reset runs the program with the watchdog as its option byte sets it, and a `00H` halts it
-/// with no reset (§31).
+/// with no reset.
 #[test]
 fn normal_reset_then_hot_attach() {
     let g15 = VirtualG15::new();
@@ -339,7 +338,7 @@ fn normal_reset_then_hot_attach() {
 }
 
 /// The model itself: holding TOOL0 low on a part sitting in the monitor, before RESET, leaves
-/// bytes behind that the next flush misses (§47.2), which is why the driver resets first.
+/// bytes behind that the next flush misses, which is why the driver resets first.
 #[test]
 fn model_break_before_reset_leaves_bytes_behind() {
     use probe_rs::architecture::rl78::communication_interface::Rl78Uart;
@@ -398,10 +397,10 @@ fn peek(g15: &VirtualG15, address: u32, len: u32) -> Vec<u8> {
     (address..address + len).map(|a| m.peek(a)).collect()
 }
 
-/// Flash by self-programming (§7.1): the blocks the image touches are erased and written, the
+/// Flash by self-programming: the blocks the image touches are erased and written, the
 /// rest are left alone. The image leaves the security ID erased, so it gets the session's
-/// (§48.1) and the next attach still unlocks; and it leaves `000CEH`-`000D7H` free, so it gets
-/// the debug stub (§31.3): after a normal reset the program runs and a `00H` halts it.
+/// and the next attach still unlocks; and it leaves `000CEH`-`000D7H` free, so it gets
+/// the debug stub: after a normal reset the program runs and a `00H` halts it.
 #[test]
 fn flash_an_image() {
     let id = [0x5A, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xA5];
@@ -451,7 +450,7 @@ fn flash_an_image() {
 }
 
 /// Continuing straight after an attach boots the program (a normal reset), rather than resuming
-/// the boot ROM's idle loop, where the watchdog runs whatever the option byte says (§47.1).
+/// the boot ROM's idle loop, where the watchdog runs whatever the option byte says.
 #[test]
 fn continue_after_attach_boots_the_program() {
     let g15 = VirtualG15::new();
@@ -539,7 +538,7 @@ fn counter_running(g15: &VirtualG15) -> u16 {
 }
 
 /// A session finds a program running with the stub's monitor armed and halts it where it is,
-/// with no reset (§31): `probe-rs read` on a running board. Its end lets the program run on, as
+/// with no reset: `probe-rs read` on a running board. Its end lets the program run on, as
 /// it found it. A session that reflashes leaves the part halted instead: the old PC means
 /// nothing in the new program.
 #[test]
@@ -628,7 +627,7 @@ fn routines_give_back_every_byte_of_ram() {
     g15.run_for_ms(1);
     let after = peek(&g15, 0xF_FB00, 0x400);
     let dead = (sp - 32 - 0xF_FB00) as usize..(sp - 0xF_FB00) as usize;
-    // While halted, bank 0's RAM is the monitor's registers but for D and E (§47.4); the
+    // While halted, bank 0's RAM is the monitor's registers but for D and E; the
     // program gets the rest back from the sync and the frame, not from RAM.
     let monitors = [0x3F8, 0x3F9, 0x3FA, 0x3FB, 0x3FE, 0x3FF];
     for (i, (b, a)) in before.iter().zip(&after).enumerate() {
@@ -647,7 +646,7 @@ fn image_with_rrm(code: &[u8]) -> Vec<(u64, Vec<u8>)> {
     image
 }
 
-/// A program that points `00002H` at a block can be read and written while it runs (§30):
+/// A program that points `00002H` at a block can be read and written while it runs:
 /// five commands a byte read, the CPU never stopping.
 #[test]
 fn memory_while_running_through_pseudo_rrm() {
@@ -739,8 +738,8 @@ fn breakpoint_during_a_pseudo_rrm_read() {
     );
 }
 
-/// e2 studio's monitor image (§4, §31): the reset vector on the debug stub, which branches to
-/// `0FFFFH`, the option bytes it writes, and the session's security ID.
+/// The recovery image: the reset vector on the debug stub, which branches to `0FFFFH`, option
+/// bytes that enable debugging, and the session's security ID.
 fn assert_monitor_image(g15: &VirtualG15, id: [u8; 10]) {
     assert_eq!(peek(g15, 0x0000, 2), [0xCE, 0x00]);
     assert_eq!(peek(g15, 0x00C0, 4), [0xFF, 0xFF, 0xF9, 0x8F]);
@@ -768,7 +767,7 @@ fn locked_part_is_not_erased_without_permission() {
 }
 
 /// With erase-all permitted, the flash protocol erases the part and writes a monitor image with
-/// the session's ID (Protocol B, [proto_b]), and the attach goes through.
+/// the session's ID over Protocol B, and the attach goes through.
 #[test]
 fn locked_part_is_recovered_with_erase_all() {
     let g15 = VirtualG15::new();
@@ -852,7 +851,7 @@ fn flash_with_a_chip_erase() {
 
 /// The debugger's routines and buffers live in the program's RAM. While the program is halted
 /// the monitor runs on the program's stack, so a buffer over it would wreck the monitor's return
-/// address: the buffer goes low in RAM, or high when the stack is low (§49.3). Only a stack down
+/// address: the buffer goes low in RAM, or high when the stack is low. Only a stack down
 /// in the routines' own code is refused.
 #[test]
 fn routines_avoid_the_stack() {
@@ -888,7 +887,7 @@ fn routines_avoid_the_stack() {
 /// Where [`image`] puts `FEED_AND_COUNT`'s `incw`: after `movw sp` at `000D8H` and the feed.
 const INCW_IN_FLASH: u64 = 0xDF;
 
-/// A breakpoint in flash is an `FFH` trap (§24): it costs a block rewrite, and the PC comes back
+/// A breakpoint in flash is an `FFH` trap: it costs a block rewrite, and the PC comes back
 /// onto it. Continuing runs the instruction under it exactly once, then traps again. Ending the
 /// session takes it out of flash.
 #[test]

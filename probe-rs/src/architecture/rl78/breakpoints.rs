@@ -1,4 +1,4 @@
-//! Breakpoints on a part with no breakpoint hardware (§42): `FFH` traps (§24).
+//! Breakpoints as `FFH` traps.
 //!
 //! `FFH` is the illegal instruction, and with the monitor armed it enters the monitor instead of
 //! resetting the part, with the PC one past it. probe-rs and GDB set breakpoints only through
@@ -6,14 +6,13 @@
 //! records it; the traps go into memory in one batch before the target next runs or steps:
 //!
 //! - **In code flash**, a trap costs a 1 KB block erase and rewrite: programming only clears
-//!   bits, and `FFH` sets them (§24.2). So changes are applied a block at a time, each block once,
+//!   bits, and `FFH` sets them. So changes are applied a block at a time, each block once,
 //!   and the original byte is kept to put back.
 //! - **In RAM**, the byte is simply written.
 //!
 //! Continuing from a trap means executing the instruction under it without the trap. The trap
 //! stays in flash: a copy of the instruction runs from the dead stack below the program's SP,
-//! and the PC is moved back into the program (a displaced step; Renesas's server does the same
-//! with `ocd_1stepOnRam`). Only `HALT` and `STOP`, or a stack with no room under it, fall back to
+//! and the PC is moved back into the program (a displaced step). Only `HALT` and `STOP`, or a stack with no room under it, fall back to
 //! lifting the trap, stepping, and putting it back: two block rewrites.
 
 use std::collections::BTreeMap;
@@ -27,11 +26,10 @@ use super::{
 };
 use crate::{BreakpointCause, CoreInterface, Error, HaltReason};
 
-/// Virtual breakpoint units. `FFH` traps have no hardware limit; this is what Renesas's engine
-/// reports for the G15 (`GetMonEventNumMax`, §43.5).
+/// Virtual breakpoint units. `FFH` traps have no hardware limit.
 pub(super) const UNITS: usize = 16;
 
-/// A code flash block, the erase unit [g15:p672].
+/// A code flash block, the erase unit.
 const BLOCK: u32 = 0x400;
 const TRAP: u8 = 0xFF;
 
@@ -59,7 +57,6 @@ impl Breakpoints {
             .filter(move |&a| Some(a) != skip)
     }
 
-    /// The traps that are in memory.
     pub(super) fn is_planted(&self, address: u32) -> bool {
         self.planted.contains_key(&address)
     }
@@ -86,11 +83,10 @@ fn in_ram(address: u32) -> bool {
 /// and the next, which a skip jumps over.
 const WINDOW: u32 = 16;
 /// How far below the program's SP the copy ends: clear of what one instruction pushes (four
-/// bytes), the monitor's frame on re-entry (six) and its stack under that (§49.3).
+/// bytes), the monitor's frame on re-entry (six) and its stack under that.
 const BELOW_SP: u32 = 32;
 
 /// What an instruction does to the PC, as far as running a copy of it elsewhere is concerned.
-/// Encodings from the RL78 LLVM backend's `llvm-mc`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Flow {
     /// Falls through, or skips the next instruction: the PC lands in the copy.
@@ -187,10 +183,9 @@ impl Rl78<'_> {
     }
 
     /// Boot the program and stop at its first instruction. An attach under reset halts in the
-    /// boot ROM (§27.5), where stepping only goes round the ROM's idle loop, and from where
-    /// resuming would run the program with the watchdog and clock the attach left (§47.1,
-    /// §48.3). So a step from there is a normal reset with a one-shot trap at the entry the
-    /// debug stub branches to (§31.3). The trap costs a rewrite of block 0, and another to take
+    /// boot ROM, where stepping only goes round the ROM's idle loop, and from where resuming
+    /// would run the program with the watchdog and clock the attach left. So a step from there
+    /// is a normal reset with a one-shot trap at the entry the debug stub branches to. The trap costs a rewrite of block 0, and another to take
     /// it out at the next run or step; only a step from the boot ROM pays it.
     pub(super) fn boot_to_entry(&mut self) -> Result<(), Error> {
         let mut stub = [0; DEBUG_STUB_LEN];
@@ -198,7 +193,7 @@ impl Rl78<'_> {
         if stub[..DEBUG_STUB.len()] != DEBUG_STUB {
             return Err(Error::Other(
                 "the program cannot be booted under the debugger: flash has no debug stub at \
-                 000CEH (§31.3). Flash the program with probe-rs to add one."
+                 000CEH. Flash the program with probe-rs to add one."
                     .to_string(),
             ));
         }
@@ -297,8 +292,8 @@ impl Rl78<'_> {
 
     /// The target stopped by itself. A trap leaves the PC one past it; a trap the debugger
     /// planted is a breakpoint, and the PC goes back onto it. Otherwise it is an `FFH` in the
-    /// program, or a reset into the monitor: the wire cannot tell those apart, only memory can
-    /// (§28.4). An `FFH` in the program is a software breakpoint, reported like ARM's `BKPT`:
+    /// program, or a reset into the monitor: the wire cannot tell those apart, only memory can.
+    /// An `FFH` in the program is a software breakpoint, reported like ARM's `BKPT`:
     /// the PC on it, so a continue traps again until the PC is moved past it.
     pub(super) fn classify_stop(&mut self) -> Result<(), Error> {
         let pc = self.pc()? as u32;
@@ -442,7 +437,6 @@ mod tests {
 
     #[test]
     fn flow_of_each_kind() {
-        // Encodings from `llvm-mc --triple=rl78 -show-encoding`.
         let cases: &[(&[u8], Flow)] = &[
             (&[0xF6], Flow::Plain),                                      // clrw ax
             (&[0x11, 0x8F, 0x34, 0x12], Flow::Plain),                    // mov a, es:!0x1234

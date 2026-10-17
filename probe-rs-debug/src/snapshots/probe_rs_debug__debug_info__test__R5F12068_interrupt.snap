@@ -4,7 +4,7 @@ expression: stack_frames
 ---
 - function_name: interval_timer
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 65
     column:
       Column: 13
@@ -943,7 +943,7 @@ expression: stack_frames
   canonical_frame_address: ~
 - function_name: main
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 87
     column:
       Column: 3
@@ -1400,7 +1400,7 @@ expression: stack_frames
                   - Base: unsigned short
           value: "0"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 85
             column: ~
             address: ~
@@ -1414,14 +1414,14 @@ expression: stack_frames
                   - Base: unsigned short
           value: "0"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 88
             column: ~
             address: ~
   canonical_frame_address: 1048090
 - function_name: __start
   source_location:
-    path: /home/addison/.cache/claude-scratch/rl-rs/pico-ml/../../../../workspace/rl-rs/picolibc/picocrt/machine/rl78/../../crt0.h
+    path: /picolibc/picocrt/machine/rl78/../../crt0.h
     line: 169
     column:
       Column: 15
@@ -1869,7 +1869,7 @@ expression: stack_frames
   canonical_frame_address: 1048096
 - function_name: _cstart
   source_location:
-    path: /home/addison/.cache/claude-scratch/rl-rs/pico-ml/../../../../workspace/rl-rs/picolibc/picocrt/machine/rl78/crt0.c
+    path: /picolibc/picocrt/machine/rl78/crt0.c
     line: 144
     column:
       Column: 5

@@ -104,7 +104,7 @@ pub trait Rl78OcdInterface: Send + fmt::Debug {
     fn attach(&mut self) -> Result<Sync, Rl78Error>;
 
     /// Halt a program that runs with the monitor armed, as the debug stub leaves it after a
-    /// normal boot (§31), and unlock: an attach that leaves the program where it was. `None`
+    /// normal boot, and unlock: an attach that leaves the program where it was. `None`
     /// when nothing answers: no stub, no program running, or a part already in the monitor.
     fn attach_running(&mut self) -> Result<Option<Sync>, Rl78Error> {
         Ok(None)
@@ -138,15 +138,15 @@ pub trait Rl78OcdInterface: Send + fmt::Debug {
 
     /// Reset the target into its own program: RESET with TOOL0 high, a normal boot. Whether the
     /// debugger can halt it afterwards depends on the program arming the monitor, which is what
-    /// the debug stub at 000CEH does (notes section 31).
+    /// the debug stub at 000CEH does.
     fn reset(&mut self) -> Result<(), Rl78Error>;
 
     /// Check, without disturbing a running target, whether it re-entered the monitor by itself.
-    /// A breakpoint does that, but so does a watchdog reset: the syncs are byte-identical (notes
-    /// section 28.4), and only the PC tells them apart.
+    /// A breakpoint does that, but so does a watchdog reset: the syncs are byte-identical, and
+    /// only the PC tells them apart.
     fn poll_stopped(&mut self) -> Result<Option<Sync>, Rl78Error>;
 
-    /// Read RAM or SFRs while the program runs, through the ROM's pseudo-RRM (§27.3, §30): one
+    /// Read RAM or SFRs while the program runs, through the ROM's pseudo-RRM: one
     /// command byte and one reply byte at a time, five per byte read, the program interrupted
     /// for a few microseconds each. Only `F0000H`-`F07FFH` and `FDF00H`-`FFFFFH`, and only for
     /// a program that put a block pointer at `00002H`.
@@ -210,8 +210,8 @@ fn first_sync(stream: &[u8], last_data: Option<u8>) -> Option<Sync> {
 /// A byte pipe to the target's TOOL0 line, plus control of RESET.
 ///
 /// The UART runs at 115200 baud, 8 data bits, odd parity, 2 stop bits. Implementations must not
-/// discard bytes they have accepted for transmission (the vendor's port driver does, and loses
-/// the mode byte), and should hold the port with a lock the operating system releases if the
+/// discard bytes they have accepted for transmission (losing the mode byte that way leaves the
+/// part in the flash loader), and should hold the port with a lock the operating system releases if the
 /// process dies.
 pub trait Rl78Uart: Send + fmt::Debug {
     /// Queue bytes for transmission.
@@ -255,8 +255,8 @@ const T_RRM_DRAIN: Duration = Duration::from_millis(20);
 /// How long a running program with the monitor armed takes to answer a halt, with room for USB.
 const T_ATTACH_RUNNING: Duration = Duration::from_millis(100);
 
-/// F0085H bit 0 arms a single step (notes section 23.1). It is sticky across an execute, so a
-/// free run must clear it explicitly.
+/// F0085H bit 0 arms a single step. It is sticky across an execute, so a free run must clear it
+/// explicitly.
 const STEP_ENABLE: u32 = 0xF_0085;
 
 /// The on-chip debugger driven over a UART, with the protocol codec in the host.
@@ -417,8 +417,7 @@ impl<L: Rl78Uart> UartOcd<L> {
 
     /// The target answered a pseudo-RRM command with something else: it stopped, and `got` is
     /// the start of its re-entry sync. Our commands after that went to a locked monitor, which
-    /// answers each with the sync again (§16.2); the first is the one with the program's B, C,
-    /// H and L.
+    /// answers each with the sync again; the first is the one with the program's B, C, H and L.
     fn rrm_stopped(&mut self, mut got: Vec<u8>) -> Result<Sync, Rl78Error> {
         // Everything the target sends now is whole syncs: let it finish.
         let mut drain = [0u8; 64];
@@ -510,7 +509,7 @@ impl<L: Rl78Uart> UartOcd<L> {
     }
 
     /// One byte, or an aligned pair as a word: n1 n2 are the high byte and n3 n4 the low, and
-    /// n4 rides in the `9xH` that commits (§30).
+    /// n4 rides in the `9xH` that commits.
     fn rrm_write_once(&mut self, address: u16, data: &[u8]) -> Result<Result<(), Sync>, Rl78Error> {
         if let Some(sync) = self.rrm_address(address)? {
             return Ok(Err(sync));
@@ -565,7 +564,7 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 
     fn attach_running(&mut self) -> Result<Option<Sync>, Rl78Error> {
-        // An armed monitor answers a 00H within a few milliseconds (§31.2). Speak to it as to a
+        // An armed monitor answers a 00H within a few milliseconds. Speak to it as to a
         // target the monitor has let run; if nothing answers, the attach under reset starts the
         // codec afresh.
         self.link.flush_input()?;
@@ -738,12 +737,11 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     fn erase_all_and_program(&mut self, image: &[u8]) -> Result<(), Rl78Error> {
         let started = Instant::now();
         self.boot_mode_reset()?;
-        // 00H, as on every capture we hold of this board; 36H instead of 06H is the first ACK of
-        // a part with data flash [proto_b:p6].
+        // 36H instead of 06H is the first ACK of a part with data flash.
         let r = self.pb_xfer(Op::PbModeEntry, &Args::default(), 1)?;
         pb_status("mode entry", r[0], &[0x06, 0x36])?;
 
-        // 60H answers ACK and the flash size in 256-byte units less one.
+        // ACK, and the flash size in 256-byte units less one.
         let r = self.pb_xfer(Op::PbWriteAfterErase, &Args::default(), 2)?;
         pb_status("write after erase", r[0], &[0x06])?;
         let size = (usize::from(r[1]) + 1) * 256;
@@ -794,11 +792,10 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     }
 }
 
-/// The longest a write after erase may take to erase the code flash: 208 ms plus 6 ms per KB
-/// [proto_b:p15], 256 ms for 8 KB, with room for a part four times the size.
+/// The longest a write after erase may take to erase the code flash: 208 ms plus 6 ms per KB,
+/// 256 ms for 8 KB, with room for a part four times the size.
 const PB_ERASE_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// Check a flash-protocol status byte.
 fn pb_status(op: &'static str, status: u8, ok: &[u8]) -> Result<(), Rl78Error> {
     if ok.contains(&status) {
         Ok(())
@@ -818,8 +815,7 @@ impl<L: Rl78Uart> UartOcd<L> {
         Ok(resp)
     }
 
-    /// Wait out the erase. The Python tool saw `FFH` bytes before the ACK, reading the line
-    /// while e2 studio purged it; they are skipped.
+    /// Wait out the erase. `FFH` bytes can arrive before the ACK; they are skipped.
     fn pb_erase_done(&mut self) -> Result<u8, Rl78Error> {
         let deadline = Instant::now() + PB_ERASE_TIMEOUT;
         loop {

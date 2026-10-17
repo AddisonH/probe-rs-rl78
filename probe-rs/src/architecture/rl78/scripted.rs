@@ -3,8 +3,7 @@
 //! [`ScriptedUart`] stands in for the probe: each test lists the bytes the driver must send and
 //! the target's replies, in order, and the uart panics on anything it was not told to expect. That
 //! pins down orderings that matter on the wire (RAM restored before the resume, RESET before
-//! TOOL0, a poll before a halt) without a board. The scenarios come from runs on an RL78/G15 FPB;
-//! section numbers are to `g15_ocd_protocol_notes.md` in the rl78_debug_re repository.
+//! TOOL0, a poll before a halt) without a board. The scenarios come from runs on an RL78/G15 FPB.
 
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -155,7 +154,7 @@ impl Script {
         self.exchange(&[0x55], &[0xF1]).exchange(&[0; 10], &[0xF2])
     }
 
-    /// A boot-mode reset and the `CAH` entry. RESET goes low before TOOL0 (§47.2).
+    /// A boot-mode reset and the `CAH` entry. RESET goes low before TOOL0.
     fn attach(&mut self, sync: [u8; 4]) -> &mut Self {
         self.line(Line::Reset(true))
             .line(Line::Tool0Low(true))
@@ -218,7 +217,7 @@ impl Session {
     }
 }
 
-/// The monitor's SP on a fresh attach (§28), and the frame of a program halted in its RAM loop at
+/// The monitor's SP on a fresh attach, and the frame of a program halted in its RAM loop at
 /// FFB9CH with PSW 0EH: register bank 1.
 const MONITOR_SP: u16 = 0xFBFA;
 const FRAME_BANK1: [u8; 6] = [0xA1, 0xA0, 0x9C, 0xFB, 0x0F, 0x0E];
@@ -242,13 +241,13 @@ fn reg(core: &mut Rl78, id: u16) -> u32 {
 #[test]
 fn attach_asserts_reset_before_tool0() {
     // The script's order is the assertion: holding TOOL0 low first is a break the monitor
-    // answers, and the reset truncates the answer into the next reply (§47.2).
+    // answers, and the reset truncates the answer into the next reply.
     Session::attached([0; 4], |_| {}).assert_done();
 }
 
 #[test]
 fn bank0_is_rebuilt_while_the_program_uses_bank1() {
-    // Hardware run of §47.4: bank 0 held AX=A0A1 BC=B0B1 DE=D0D1 HL=E0E1, bank 1 1011..1617.
+    // From a halt on hardware: bank 0 held AX=A0A1 BC=B0B1 DE=D0D1 HL=E0E1, bank 1 1011..1617.
     // The sync carries bank 0's B, C, H and L; the frame its X and A.
     let mut s = Session::attached([0xB0, 0xB1, 0xE0, 0xE1], |s| {
         s.context(MONITOR_SP, FRAME_BANK1, BANKS_BANK1);

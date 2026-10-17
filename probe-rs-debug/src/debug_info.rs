@@ -1776,7 +1776,7 @@ pub fn unwind_program_counter_register(
                     "PC=(unwound x1 - 4) (dwarf Undefined)",
                 ),
                 // `CALL` fills the low three bytes of its four-byte slot and leaves the top byte as
-                // it was [g15:p706]. Back up by one into the call, as for the other architectures.
+                // it was. Back up by one into the call, as for the other architectures.
                 Some(InstructionSet::Rl78) => (
                     Some(RegisterValue::U32(
                         (return_address & 0xF_FFFF).wrapping_sub(1),

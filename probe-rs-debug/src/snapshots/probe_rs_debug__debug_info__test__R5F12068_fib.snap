@@ -4,7 +4,7 @@ expression: stack_frames
 ---
 - function_name: fib
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 40
     column:
       Column: 10
@@ -511,14 +511,14 @@ expression: stack_frames
                   - Base: unsigned char
           value: "1"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 37
             column: ~
             address: ~
   canonical_frame_address: 1048018
 - function_name: fib
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 41
     column:
       Column: 9
@@ -974,14 +974,14 @@ expression: stack_frames
                   - Base: unsigned char
           value: "2"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 37
             column: ~
             address: ~
   canonical_frame_address: 1048028
 - function_name: fib
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 41
     column:
       Column: 9
@@ -1437,14 +1437,14 @@ expression: stack_frames
                   - Base: unsigned char
           value: "3"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 37
             column: ~
             address: ~
   canonical_frame_address: 1048038
 - function_name: fib
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 41
     column:
       Column: 9
@@ -1900,14 +1900,14 @@ expression: stack_frames
                   - Base: unsigned char
           value: "4"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 37
             column: ~
             address: ~
   canonical_frame_address: 1048048
 - function_name: fib
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 41
     column:
       Column: 9
@@ -2363,14 +2363,14 @@ expression: stack_frames
                   - Base: unsigned char
           value: "5"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 37
             column: ~
             address: ~
   canonical_frame_address: 1048058
 - function_name: fib
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 41
     column:
       Column: 9
@@ -2826,14 +2826,14 @@ expression: stack_frames
                   - Base: unsigned char
           value: "6"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 37
             column: ~
             address: ~
   canonical_frame_address: 1048068
 - function_name: fib
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 41
     column:
       Column: 9
@@ -3289,14 +3289,14 @@ expression: stack_frames
                   - Base: unsigned char
           value: "7"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 37
             column: ~
             address: ~
   canonical_frame_address: 1048078
 - function_name: main
   source_location:
-    path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+    path: /g15-debug/main.c
     line: 82
     column:
       Column: 18
@@ -3752,7 +3752,7 @@ expression: stack_frames
                   - Base: unsigned short
           value: "18"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 85
             column: ~
             address: ~
@@ -3766,14 +3766,14 @@ expression: stack_frames
                   - Base: unsigned char
           value: "7"
           source_location:
-            path: /home/addison/workspace/rl78_debug_re/firmware/g15-debug/main.c
+            path: /g15-debug/main.c
             line: 81
             column: ~
             address: ~
   canonical_frame_address: 1048090
 - function_name: __start
   source_location:
-    path: /home/addison/.cache/claude-scratch/rl-rs/pico-ml/../../../../workspace/rl-rs/picolibc/picocrt/machine/rl78/../../crt0.h
+    path: /picolibc/picocrt/machine/rl78/../../crt0.h
     line: 169
     column:
       Column: 15
@@ -4221,7 +4221,7 @@ expression: stack_frames
   canonical_frame_address: 1048096
 - function_name: _cstart
   source_location:
-    path: /home/addison/.cache/claude-scratch/rl-rs/pico-ml/../../../../workspace/rl-rs/picolibc/picocrt/machine/rl78/crt0.c
+    path: /picolibc/picocrt/machine/rl78/crt0.c
     line: 144
     column:
       Column: 5

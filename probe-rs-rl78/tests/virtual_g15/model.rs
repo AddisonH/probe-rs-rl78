@@ -1,35 +1,34 @@
 //! The virtual G15: an RL78/G15 (R5F12068) as a debugger sees it through TOOL0 and RESET.
 //!
 //! Instructions run on rl78sim. The on-chip debug monitor, a 512-byte mask ROM at
-//! `0EFE00H`–`0EFFFFH`, is Renesas's code and is not used: it is modelled here from its decode in
-//! `g15_ocd_protocol_notes.md` (rl78_debug_re; section numbers below are to it). The model keeps
+//! `0EFE00H`–`0EFFFFH`, is Renesas's code and is not used: it is modelled here. The model keeps
 //! the monitor's working registers where the ROM keeps them, in bank 0, so the RAM image of
-//! bank 0 after a halt is the monitor's scratch, as on hardware (§47.4).
+//! bank 0 after a halt is the monitor's scratch, as on hardware.
 //!
 //! What it models:
 //!
 //! - RESET and TOOL0: a reset with TOOL0 low starts the boot ROM's serial mode, where `CAH`
-//!   enters the monitor (§4); TOOL0 high boots the program.
-//! - The monitor's path A (§27): entry as `SEL RB0`, `PUSH AX` and the B C H L 00 sync; the
+//!   enters the monitor; TOOL0 high boots the program.
+//! - The monitor's path A: entry as `SEL RB0`, `PUSH AX` and the B C H L 00 sync; the
 //!   locked loop, where anything but `55H` resends the sync; unlock against `000C4H`; `56H`, `57H`
 //!   and `58H` on `F0000H + HL`; `5BH` as `CALL !!0FFED0H` returning to `0EFFB5H`; `5CH` as
 //!   B C H L, the echo of L, `POP AX` and `RETI`, with `F0085H` bit 0 making it a single step.
 //! - Path B, the interrupt a byte raises in a running program once the debug stub has armed the
-//!   monitor (`F0080H = C5H`, `FFFAFH` bit 6): `00H` halts.
-//! - `FFH` traps into the monitor with PC one past it (§24, §27.5); the ROM's idle loop at
+//!   monitor (`F0080H = C5H`, `FFFAFH` bit 6): `00H` halts, and pseudo-RRM/DMM reads and writes
+//!   memory while the program runs.
+//! - `FFH` traps into the monitor with PC one past it; the ROM's idle loop at
 //!   `0EFFFCH` traps again at once.
-//! - The watchdog: running after a `CAH` attach whatever the option byte says (§47.1), counting
+//! - The watchdog: running after a `CAH` attach whatever the option byte says, counting
 //!   only while the program runs; overflow, a write to `WDTE` other than `ACH`, or an illegal
 //!   instruction with the monitor disarmed is an internal reset into a normal boot.
 //! - A break on TOOL0 while the monitor is listening is a `00H` it answers; a reset cuts the
-//!   answer off, and what is left arrives after the next flush (§47.2).
-//! - The code flash sequencer (§7.1): write and block erase, with the error flags. A command the
+//!   answer off, and what is left arrives after the next flush.
+//! - The code flash sequencer: write and block erase, with the error flags. A command the
 //!   manual does not allow panics, as a driver bug.
-//! - Protocol B on code flash [proto_b]: the `00H` mode byte, `60H` write after erase and `53H`
-//!   CRC check, as Renesas Flash Programmer drives them (`g15_rfp`).
+//! - Protocol B on code flash: the `00H` mode byte, `60H` write after erase and `53H` CRC check.
 //!
-//! Not modelled: Protocol B on data flash, pseudo-RRM/DMM (path B's other commands), interrupts,
-//! other peripherals, and §48.3's slowdown after a `CAH` attach.
+//! Not modelled: Protocol B on data flash, interrupts, other peripherals, and the part running
+//! slower after a `CAH` attach.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -41,19 +40,19 @@ use rl78sim::cpu::{Cpu, Stop};
 use rl78sim::isa::Core;
 use rl78sim::mem::{Io, MemMap, Memory, RomWrites};
 
-/// Code flash, `00000H`–`01FFFH` [g15:p56].
+/// Code flash, `00000H`–`01FFFH`.
 pub const FLASH_SIZE: u32 = 0x2000;
 /// RAM, `FFB00H`–`FFEFFH`; the register banks are its top 32 bytes.
 pub const RAM_START: u32 = 0xF_FB00;
 
 const WDTE: u32 = 0xF_FFAB;
-/// The OCD serial engine's control register; bit 6 enables the monitor (§14.1, §27.4).
+/// The OCD serial engine's control register; bit 6 enables the monitor.
 const OCD_CTRL: u32 = 0xF_FFAF;
-/// The debug-engine handshake: the stub writes `C5H` (§27.6).
+/// The debug-engine handshake: the stub writes `C5H`.
 const ENGINE_MODE: u32 = 0xF_0080;
-/// Bit 0 arms a single step (§23.1).
+/// Bit 0 arms a single step.
 const STEP_ENABLE: u32 = 0xF_0085;
-/// Bit 0 picks the byte the ROM's idle loop writes to `F0080H` (§27.5). Reads 03H after `CAH`.
+/// Bit 0 picks the byte the ROM's idle loop writes to `F0080H`. Reads 03H after `CAH`.
 const ENGINE_SELECT: u32 = 0xF_0086;
 const SP: u32 = 0xF_FFF8;
 const PSW: u32 = 0xF_FFFA;
@@ -62,7 +61,7 @@ const ES: u32 = 0xF_FFFD;
 const BANK0: u32 = 0xF_FEF8;
 const SECURITY_ID: u32 = 0x0_00C4;
 
-// The flash sequencer's registers, 2nd SFRs [g15:p74].
+// The flash sequencer's registers, 2nd SFRs.
 const FSSET: u32 = 0xF_00BE;
 const FLPMC: u32 = 0xF_00C0;
 const FSSQ: u32 = 0xF_00C1;
@@ -74,11 +73,11 @@ const FSASTL: u32 = 0xF_00C6;
 const FSASTH: u32 = 0xF_00C7;
 const FLWLL: u32 = 0xF_00C8;
 const FLWHH: u32 = 0xF_00CB;
-/// A code flash block, the erase unit [g15:p672].
+/// A code flash block, the erase unit.
 const BLOCK: u32 = 0x400;
 const OCD_OPTION: u32 = 0x0_00C3;
 const WDT_OPTION: u32 = 0x0_00C0;
-/// FRQSEL, the on-chip oscillator's frequency at reset [g15:p651].
+/// FRQSEL, the on-chip oscillator's frequency at reset.
 const FREQ_OPTION: u32 = 0x0_00C2;
 const CKC: u32 = 0xF_FFA4;
 const HOCODIV: u32 = 0xF_00A8;
@@ -92,7 +91,7 @@ const ROM: std::ops::Range<u32> = 0xE_FE00..0xF_0000;
 
 /// The CPU clock: HOCO at 16 MHz with option byte `000C2H = F9H`.
 pub const CLOCK_HZ: u64 = 16_000_000;
-/// The watchdog after a `CAH` attach overflows within 20-100 ms (§47.1); 50 ms here.
+/// The watchdog after a `CAH` attach overflows within 20-100 ms; 50 ms here.
 const WDT_PERIOD_ATTACHED: u64 = CLOCK_HZ / 20;
 /// What a reset costs, in clocks.
 const RESET_CLOCKS: u64 = 1_000;
@@ -126,7 +125,7 @@ enum Mode {
     FlashLoader(Loader),
 }
 
-/// Where the flash loader is in a command [proto_b:p9-p13].
+/// Where the flash loader is in a command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Loader {
     Command,
@@ -147,7 +146,7 @@ pub struct Model {
     tool0_low: bool,
     /// Bytes on their way to the host.
     rx: VecDeque<u8>,
-    /// Bytes cut off by a reset, which the host's next flush does not catch (§47.2).
+    /// Bytes cut off by a reset, which the host's next flush does not catch.
     late: VecDeque<u8>,
     expect: Expect,
     /// Bytes collected for a multi-byte command.
@@ -196,7 +195,7 @@ impl Io for Peripherals {
         match a {
             WDTE => self.wdte_writes.push(v),
             FSSQ if v & 0x80 != 0 => self.flash.start(mem, v),
-            // SQEND clears when SQST does [g15:p677].
+            // SQEND clears when SQST does.
             FSSQ => self.flash.sqend = false,
             _ => return false,
         }
@@ -204,7 +203,7 @@ impl Io for Peripherals {
     }
 }
 
-/// The code flash sequencer [g15:p669]-[g15:p680]. It does a command at once, where hardware
+/// The code flash sequencer. It does a command at once, where hardware
 /// keeps the CPU waiting. A command the manual does not allow panics: hardware would do
 /// something undefined, and the driver that sent it has a bug.
 #[derive(Default)]
@@ -221,7 +220,7 @@ impl FlashSequencer {
     fn start(&mut self, mem: &mut Memory, fssq: u8) {
         let b = |a: u32| mem.b[a as usize];
         let fsset = b(FSSET) & 0x1F;
-        // The CPU clock in MHz, rounded up, less one [g15:p675].
+        // The CPU clock in MHz, rounded up, less one.
         let want = (CLOCK_HZ / 1_000_000 - 1) as u8;
         assert_eq!(
             fsset,
@@ -236,11 +235,11 @@ impl FlashSequencer {
             "virtual G15: data flash (FLPMC.SELDFL) is not modelled"
         );
         let flap = u32::from(b(FLAPL)) | u32::from(b(FLAPH) & 0x1F) << 8;
-        // FLSEDL's bits 1-0 are fixed at 0 [g15:p671].
+        // FLSEDL's bits 1-0 are fixed at 0.
         let flsed = u32::from(b(FLSEDL) & 0xFC) | u32::from(b(FLSEDH) & 0x1F) << 8;
         self.sqend = true;
         self.errors = 0;
-        // FWEDIS = 0 and FLSPM = 1, or the sequencer refuses [g15:p674].
+        // FWEDIS = 0 and FLSPM = 1, or the sequencer refuses.
         if flpmc & 0x0A != 0x02 {
             self.errors = 0x10;
             return;
@@ -259,17 +258,17 @@ impl FlashSequencer {
                 self.words_written += 1;
             }
             4 => {
-                // Table 19-9: FLAP is a block start, FLSED a block start with bits 9-2 set.
+                // FLAP is a block start, FLSED a block start with bits 9-2 set.
                 assert!(
                     flap % BLOCK == 0 && flsed % BLOCK == 0x3FC && flap <= flsed,
-                    "virtual G15: block erase with FLAP {flap:05X}H, FLSED {flsed:05X}H [g15:p671]"
+                    "virtual G15: block erase with FLAP {flap:05X}H, FLSED {flsed:05X}H"
                 );
                 for block in (flap..=flsed).step_by(BLOCK as usize) {
                     mem.poke(block, &[0xFF; BLOCK as usize]);
                     self.blocks_erased += 1;
                 }
             }
-            _ => panic!("virtual G15: FSSQ {fssq:02X}H is a prohibited command [g15:p676]"),
+            _ => panic!("virtual G15: FSSQ {fssq:02X}H is a prohibited command"),
         }
     }
 }
@@ -297,7 +296,7 @@ fn g15_map() -> MemMap {
         rom_writes: RomWrites::Ignore,
         strict: true,
         sfr2_reads_11: false,
-        // 2nd SFRs F0000H-F07FFH; the mirror starts at F0800H [g15:p62].
+        // 2nd SFRs F0000H-F07FFH; the mirror starts at F0800H.
         sfr2_end: 0xF_0800,
     }
 }
@@ -424,14 +423,14 @@ impl Model {
     }
 
     /// The monitor answers a byte on TOOL0. After a plain boot that also takes `000C3H` bits 3
-    /// and 1, which a toolchain ships clear: without them the stub's writes do not arm it (§31.5).
+    /// and 1, which a toolchain ships clear: without them the stub's writes do not arm it.
     fn armed(&self) -> bool {
         self.peek(ENGINE_MODE) == 0xC5
             && self.peek(OCD_CTRL) & 0x40 != 0
             && (self.debug_boot || self.peek(OCD_OPTION) & 0x0A == 0x0A)
     }
 
-    /// Path B, pseudo-RRM/DMM (§27.3): one command a byte, at most one reply a byte, the program
+    /// Path B, pseudo-RRM/DMM: one command a byte, at most one reply a byte, the program
     /// not stopped. The counter and the address live in the four-byte block `00002H` points at;
     /// a terminator at the wrong count, or an address outside the two windows, zeroes the
     /// counter and answers nothing.
@@ -463,7 +462,7 @@ impl Model {
                 set_c(self, 0);
                 let low = self.peek(target);
                 if byte == 0xD1 {
-                    // The high byte waits in the block's byte 1 (§30).
+                    // The high byte waits in the block's byte 1.
                     let high = self.peek(target + 1);
                     self.cpu.mem.poke(block + 1, &[high]);
                 }
@@ -495,13 +494,13 @@ impl Model {
     /// A normal boot: from the reset vector, the option bytes applied, the monitor disarmed until
     /// the program's debug stub arms it.
     /// What a reset does to the registers the debugger reads: the CPU's, the clock's and the flash
-    /// sequencer's [g15:p74].
+    /// sequencer's.
     fn reset_registers(&mut self) {
         self.cpu.reset();
         let freq = self.peek(FREQ_OPTION) & 0x07;
         let b = &mut self.cpu.mem.b;
         b[CKC as usize] = 0x00;
-        // HOCODIV starts as the option byte's FRQSEL [g15:p145].
+        // HOCODIV starts as the option byte's FRQSEL.
         b[HOCODIV as usize] = freq;
         for a in [FSSET, FSSQ, FLAPL, FLAPH, FLSEDL, FLSEDH] {
             b[a as usize] = 0;
@@ -516,7 +515,7 @@ impl Model {
             self.cpu.mem.b[a as usize] = 0;
         }
         self.wdt_running = self.peek(WDT_OPTION) & 0x10 != 0;
-        // WDCS, (2^n - 1)/fIL at 15 kHz [g15:p649]; only matters for programs that leave it on.
+        // WDCS, (2^n - 1)/fIL at 15 kHz; only matters for programs that leave it on.
         let wdcs = [6, 7, 8, 9, 11, 13, 14, 16][usize::from(self.peek(WDT_OPTION) >> 1 & 7)];
         self.wdt_period = CLOCK_HZ * (1 << wdcs) / 15_000;
         self.cpu.mem.b[WDTE as usize] = if self.wdt_running { 0x9A } else { 0x1A };
@@ -540,7 +539,7 @@ impl Model {
     }
 
     /// A store to `WDTE`: `ACH` feeds the watchdog; anything else, a bit operation included,
-    /// resets [g15:p311].
+    /// resets.
     fn wdte_written(&mut self, v: u8) {
         match v {
             0xAC => self.wdt_mark = self.cpu.n.clocks,
@@ -550,7 +549,7 @@ impl Model {
 
     // ---- the monitor ------------------------------------------------------------------------
 
-    /// The debug interrupt: frame, `SEL RB0`, `PUSH AX`, and path A's sync (§18, §27).
+    /// The debug interrupt: frame, `SEL RB0`, `PUSH AX`, and path A's sync.
     fn enter_monitor(&mut self, pc: u32) {
         self.cpu.pc = pc;
         let psw = self.peek(PSW);
@@ -762,7 +761,7 @@ impl Model {
         }
     }
 
-    /// The ROM's idle loop (0EFFDFH-0EFFFCH, §27.5), one instruction at a time.
+    /// The ROM's idle loop (0EFFDFH-0EFFFCH), one instruction at a time.
     fn rom_step(&mut self, pc: u32) {
         let next = match pc {
             0xE_FFFC => 0xE_FFDF,
@@ -815,7 +814,7 @@ impl Model {
             Mode::BootSerial => match byte {
                 0xCA => self.ca_entry(),
                 0x00 | 0x3A => {
-                    // A part with data flash answers its first ACK as 36H [proto_b:p6].
+                    // A part with data flash answers its first ACK as 36H.
                     self.send(&[0x36]);
                     self.mode = Mode::FlashLoader(Loader::Command);
                 }
@@ -829,17 +828,17 @@ impl Model {
                 }
                 let pc = self.cpu.pc;
                 if byte == 0x00 {
-                    // Path B bridges to path A: the halt (§23.2, §27.3).
+                    // Path B bridges to path A: the halt.
                     self.enter_monitor(pc);
                 } else if !matches!(self.peek16(0x0002), 0x0000 | 0xFFFF) {
                     self.path_b(byte);
                 }
-                // Otherwise path B returns at once and says nothing (0EFE97H).
+                // Otherwise path B returns at once and says nothing.
             }
         }
     }
 
-    /// Protocol B, one byte at a time. The answers are what `g15_rfp` shows the G15 sending:
+    /// Protocol B, one byte at a time. The answers are what the G15 sends:
     /// `60H` and `53H` give ACK and 1FH (8 KB in 256-byte units, less one).
     fn flash_loader(&mut self, state: Loader, byte: u8) {
         const ACK: u8 = 0x06;
@@ -857,7 +856,7 @@ impl Model {
                 panic!("virtual G15: Protocol B on data flash is not modelled")
             }
             (Loader::Command, _) => {
-                self.send(&[0x04]); // command number error [proto_b:p6]
+                self.send(&[0x04]); // command number error
                 Loader::Command
             }
             (Loader::EraseAck, ACK) => {
@@ -899,7 +898,7 @@ impl Model {
         });
     }
 
-    /// The boot ROM's `CAH` route into the monitor (§4, §27.5).
+    /// The boot ROM's `CAH` route into the monitor.
     fn ca_entry(&mut self) {
         if self.peek(OCD_OPTION) & 0x80 == 0 {
             return; // 0EFFE5H spins until the on-chip debug option byte enables debugging
@@ -912,7 +911,7 @@ impl Model {
         self.cpu.mem.b[ENGINE_SELECT as usize] = 0x03;
         self.cpu.mem.b[ENGINE_MODE as usize] = 0xC5;
         self.cpu.mem.b[OCD_CTRL as usize] = 0x65;
-        // §47.1: the watchdog runs, whatever 000C0H says.
+        // The watchdog runs, whatever 000C0H says.
         self.wdt_running = true;
         self.wdt_period = WDT_PERIOD_ATTACHED;
         self.wdt_mark = self.cpu.n.clocks;
@@ -934,7 +933,7 @@ impl VirtualG15 {
     pub fn new() -> Self {
         let mut m = Model::new();
         // A blank part has erased flash; give it the option bytes a debugger needs: watchdog
-        // off, RESET pin enabled, 16 MHz, debugging enabled with its in-use bits (§31).
+        // off, RESET pin enabled, 16 MHz, debugging enabled with its in-use bits.
         m.poke(WDT_OPTION, &[0xEE, 0xFF, 0xF9, 0x8F]);
         m.poke(SECURITY_ID, &[0; 10]);
         Self(Arc::new(Mutex::new(m)))
@@ -1037,7 +1036,7 @@ impl Rl78Uart for VirtualG15 {
     }
 }
 
-/// Protocol B's CRC [proto_b:p14]: CRC-16/CCITT from zero over four-byte groups, each taken last
+/// Protocol B's CRC: CRC-16/CCITT from zero over four-byte groups, each taken last
 /// byte first.
 fn flash_crc(data: &[u8]) -> u16 {
     let mut crc = 0u16;

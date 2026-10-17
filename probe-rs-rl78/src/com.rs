@@ -10,8 +10,7 @@
 //! stylistic. Its latency timer must be 1 ms, or every reply waits out the 16 ms default and the
 //! link runs about 16 times slower; through a tty that timer is a root-owned sysfs file. 8-O-2
 //! framing, the break and the reset lines are likewise one vendor request each. And claiming the
-//! USB interface is a port lock the operating system releases when the process dies, which the
-//! vendor tool's named semaphore is not.
+//! USB interface is a port lock the operating system releases when the process dies.
 
 use std::{
     collections::VecDeque,
