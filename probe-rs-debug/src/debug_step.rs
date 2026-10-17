@@ -204,10 +204,20 @@ impl SteppingMode {
                 //    -- If there is one, it means the step over target is in the current sequence,
                 //       so we get the valid breakpoint location for this next location.
                 //    -- If there is not one, the step over target is the same as the step out target.
+                // `PC + 1` can be the next function's first byte, after a one-byte return.
+                let function = program_unit.get_function_dies(debug_info, program_counter)?;
                 return VerifiedBreakpoint::for_address(
                     debug_info,
                     program_counter.saturating_add(1),
                 )
+                .and_then(|next| match function.first() {
+                    Some(function) if !function.range_contains(next.address) => {
+                        Err(DebugError::WarnAndContinue {
+                            message: "The next statement is in another function.".to_string(),
+                        })
+                    }
+                    _ => Ok(next),
+                })
                 .or_else(|_| {
                     // If we cannot find a valid breakpoint in the current sequence, we will step out of the current sequence.
                     SteppingMode::OutOfStatement.get_halt_location(
