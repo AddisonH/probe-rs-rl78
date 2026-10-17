@@ -841,12 +841,13 @@ impl RpcBackend {
         // Clear the control block of the program that ran before, so that its
         // header does not leak into the first poll cycle. The build above told
         // the client whether this image writes the block itself, in which case
-        // the clear is skipped.
-        if let Some(rtt_client) = rtt_client {
-            session
-                .clear_rtt_control_block(rtt_client)
-                .await
-                .map_err(|e| DebuggerError::Other(anyhow::anyhow!(e)))?;
+        // the clear is skipped. The old program is still running here, and on
+        // some targets its RAM cannot be read while it runs: then the block is
+        // left as it is, which is no reason not to flash.
+        if let Some(rtt_client) = rtt_client
+            && let Err(e) = session.clear_rtt_control_block(rtt_client).await
+        {
+            tracing::warn!("Could not clear the previous program's RTT control block: {e}");
         }
 
         let run_flash = if config.verify_before_flashing {
