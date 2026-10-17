@@ -47,7 +47,7 @@ impl Rl78DebugSequence for DefaultRl78Sequence {
     }
 }
 
-/// The RL78/G23 class, which has no flash programming yet.
+/// The RL78/G23 class.
 #[derive(Debug)]
 pub struct G23Rl78Sequence;
 
@@ -58,4 +58,8 @@ impl G23Rl78Sequence {
     }
 }
 
-impl Rl78DebugSequence for G23Rl78Sequence {}
+impl Rl78DebugSequence for G23Rl78Sequence {
+    fn debug_flash_sequence(&self) -> Option<Arc<dyn DebugFlashSequence>> {
+        Some(Arc::new(Rl78Flash::without_stub()))
+    }
+}

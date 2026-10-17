@@ -118,6 +118,80 @@ const P_FLAP: usize = 5;
 const P_FLSED: usize = 7;
 const P_FSSQ: usize = 9;
 
+/// The RL78/G23's [`STUB_FLASH`]. Its sequencer is the G15's at other addresses, with 16-bit
+/// address and data registers, and `FLPMC` is written through `PFCMD`'s protection sequence (`mode`).
+/// Its operands are laid out for word access: status, words, `FLAPL` (2), `FLSEDL` (2), `FLAPH`,
+/// `FLSEDH`, the `FSSET` frequency bits, `FSSQ`.
+const STUB_FLASH_G23: [u8; 147] = [
+    0xF5, 0xC5, 0x02, //             clrb !FSSQ
+    0x8F, 0xCB, 0x02, //       w0:   mov  a, !FSASTH
+    0x31, 0x63, 0xFA, //             bt   a.6, $w0
+    0x50, 0x02, //                   mov  x, #02H          ; code flash programming mode
+    0xFE, 0x70, 0x00, //             call $!mode
+    0xE5, 0xC9, 0x02, //             oneb !FLRST
+    0xF5, 0xC9, 0x02, //             clrb !FLRST
+    0x8F, 0xB6, 0x00, //             mov  a, !FSSET
+    0x5C, 0xC0, //                   and  a, #0C0H         ; keep the boot area bits
+    0x6F, 0xFE, 0xFC, //             or   a, !P_FSET
+    0x9F, 0xB6, 0x00, //             mov  !FSSET, a
+    0xAF, 0xF8, 0xFC, //             movw ax, !P_FLAPL
+    0xBF, 0xC2, 0x02, //             movw !FLAPL, ax
+    0x8F, 0xFC, 0xFC, //             mov  a, !P_FLAPH
+    0x9F, 0xC4, 0x02, //             mov  !FLAPH, a
+    0xAF, 0xFA, 0xFC, //             movw ax, !P_FLSEDL
+    0xBF, 0xC6, 0x02, //             movw !FLSEDL, ax
+    0x8F, 0xFD, 0xFC, //             mov  a, !P_FLSEDH
+    0x9F, 0xC8, 0x02, //             mov  !FLSEDH, a
+    0x36, 0x00, 0xFD, //             movw hl, #0FD00H
+    0x8F, 0xF7, 0xFC, //             mov  a, !P_WORDS
+    0x73, //                         mov  b, a
+    0xAB, //                   next: movw ax, [hl]
+    0xBF, 0xCC, 0x02, //             movw !FLWL, ax
+    0xAC, 0x02, //                   movw ax, [hl+2]
+    0xBF, 0xCE, 0x02, //             movw !FLWH, ax
+    0x8F, 0xFF, 0xFC, //             mov  a, !P_FSSQ
+    0x9F, 0xC5, 0x02, //             mov  !FSSQ, a
+    0x8F, 0xCB, 0x02, //       w1:   mov  a, !FSASTH
+    0x31, 0x65, 0xFA, //             bf   a.6, $w1
+    0xF5, 0xC5, 0x02, //             clrb !FSSQ
+    0x8F, 0xCB, 0x02, //       w2:   mov  a, !FSASTH
+    0x31, 0x63, 0xFA, //             bt   a.6, $w2
+    0x8F, 0xCA, 0x02, //             mov  a, !FSASTL
+    0x5C, 0x13, //                   and  a, #13H
+    0xDF, 0x16, //                   bnz  $done
+    0xAF, 0xC2, 0x02, //             movw ax, !FLAPL
+    0x04, 0x04, 0x00, //             addw ax, #4
+    0xBF, 0xC2, 0x02, //             movw !FLAPL, ax
+    0xDE, 0x03, //                   bnc  $nc
+    0xA0, 0xC4, 0x02, //             inc  !FLAPH
+    0xA7, //                   nc:   incw hl
+    0xA7, //                         incw hl
+    0xA7, //                         incw hl
+    0xA7, //                         incw hl
+    0x93, //                         dec  b
+    0xDF, 0xC6, //                   bnz  $next
+    0xF1, //                         clrb a
+    0x9F, 0xF6, 0xFC, //       done: mov  !P_STATUS, a
+    0x50, 0x08, //                   mov  x, #08H          ; not programmable; falls into mode
+    0x60, //                   mode: mov  a, x
+    0x7C, 0xFF, //                   xor  a, #0FFH
+    0x72, //                         mov  c, a
+    0x60, //                         mov  a, x
+    0xCF, 0xC0, 0x00, 0xA5, //       mov  !PFCMD, #0A5H
+    0x9F, 0xC0, 0x02, //             mov  !FLPMC, a
+    0x62, //                         mov  a, c
+    0x9F, 0xC0, 0x02, //             mov  !FLPMC, a
+    0x60, //                         mov  a, x
+    0x9F, 0xC0, 0x02, //             mov  !FLPMC, a
+    0xD7, //                         ret
+];
+const STUB_FLASH_G23_RELOCS: [usize; 9] = [26, 32, 38, 44, 50, 56, 59, 72, 122];
+const G23_P_FLAPL: usize = 2;
+const G23_P_FLSEDL: usize = 4;
+const G23_P_FLAPH: usize = 6;
+const G23_P_FLSEDH: usize = 7;
+const G23_P_FSET: usize = 8;
+
 /// [`STUB_FLASH`] as assembled has its data at `FFD00H`; staged, it is moved to the halt's buffer.
 const STUB_FLASH_BUF: u32 = 0xF_FD00;
 /// The `!addr16` and `#imm16` operands in [`STUB_FLASH`] that address the operands or the data.
@@ -125,9 +199,13 @@ const STUB_FLASH_RELOCS: [usize; 10] = [11, 17, 23, 29, 35, 41, 47, 50, 73, 126]
 
 /// The flash routine for a buffer at `buf`.
 fn flash_stub(buf: u32) -> [u8; STUB_FLASH.len()] {
-    let mut code = STUB_FLASH;
+    relocate(STUB_FLASH, &STUB_FLASH_RELOCS, buf)
+}
+
+/// A flash routine, assembled for a buffer at [`STUB_FLASH_BUF`], for one at `buf`.
+fn relocate<const N: usize>(mut code: [u8; N], relocs: &[usize], buf: u32) -> [u8; N] {
     let delta = buf.wrapping_sub(STUB_FLASH_BUF) as u16;
-    for at in STUB_FLASH_RELOCS {
+    for &at in relocs {
         let operand = u16::from_le_bytes([code[at], code[at + 1]]).wrapping_add(delta);
         code[at..at + 2].copy_from_slice(&operand.to_le_bytes());
     }
@@ -143,8 +221,6 @@ const FSSQ_ERASE: u8 = 0x84;
 /// FLPMC: code flash, write/erase enabled, self-programming mode.
 const FLPMC_CODE: u8 = 0x02;
 
-/// A code flash block, the erase unit.
-const BLOCK: u32 = 0x400;
 const WORD: usize = 4;
 
 /// System clock control: MCS set means the CPU runs from the high-speed system clock.
@@ -167,6 +243,11 @@ impl Rl78<'_> {
     /// pulses by it.
     fn flash_fsset(&mut self) -> Result<u8, Error> {
         if let Some(fsset) = self.state.fsset {
+            return Ok(fsset);
+        }
+        if self.g23() {
+            let fsset = self.cpu_mhz_g23()? - 1;
+            self.state.fsset = Some(fsset);
             return Ok(fsset);
         }
         let mut ckc = [0];
@@ -199,6 +280,48 @@ impl Rl78<'_> {
         Ok(fsset)
     }
 
+    /// The G23's CPU clock in MHz. Self-programming needs it on the high-speed on-chip
+    /// oscillator, whose frequency is `HOCODIV`'s, from a table that option byte `000C2H` bit 3
+    /// (FRQSEL3) chooses [RL78/G23 manual, 6.3.9].
+    fn cpu_mhz_g23(&mut self) -> Result<u8, Error> {
+        const CKC_CSS: u8 = 1 << 6;
+        const CKC_MCS1: u8 = 1 << 1;
+        let mut ckc = [0];
+        self.interface.read_mem(CKC, &mut ckc)?;
+        if ckc[0] & (CKC_CSS | CKC_MCS | CKC_MCS1) != 0 {
+            return Err(Rl78Error::Other(format!(
+                "CKC is {:02X}H: the CPU does not run from the high-speed on-chip oscillator, \
+                 which flash programming needs",
+                ckc[0]
+            ))
+            .into());
+        }
+        let mut option = [0];
+        self.read_bytes(0xC2, &mut option)?;
+        let mut div = [0];
+        self.interface.read_mem(HOCODIV, &mut div)?;
+        let table: &[u8] = if option[0] & 0x08 != 0 {
+            &[32, 16, 8, 4, 2, 1]
+        } else {
+            &[24, 12, 6, 3]
+        };
+        table
+            .get(usize::from(div[0] & 0x07))
+            .copied()
+            .ok_or_else(|| {
+                Rl78Error::Other(format!(
+                "HOCODIV is {:02X}H, which the manual prohibits with option byte 000C2H at {:02X}H",
+                div[0], option[0]
+            ))
+            .into()
+            })
+    }
+
+    /// The code flash erase unit.
+    pub(super) fn flash_block(&self) -> u32 {
+        if self.g23() { 0x800 } else { 0x400 }
+    }
+
     /// Run one sequencer command: `fssq` over the words in `data`, or once for an erase.
     fn flash_command(
         &mut self,
@@ -214,7 +337,12 @@ impl Rl78<'_> {
         let fsset = self.flash_fsset()?;
         let params = self.stub_buf()? - PARAMS_LEN as u32;
         if !self.state.flash_resident {
-            self.stage_stub(&flash_stub(params + PARAMS_LEN as u32))?;
+            let buf = params + PARAMS_LEN as u32;
+            if self.g23() {
+                self.stage_stub(&relocate(STUB_FLASH_G23, &STUB_FLASH_G23_RELOCS, buf))?;
+            } else {
+                self.stage_stub(&flash_stub(buf))?;
+            }
             self.state.flash_resident = true;
         }
 
@@ -225,10 +353,18 @@ impl Rl78<'_> {
         let mut buf = vec![0; PARAMS_LEN + data.len()];
         buf[P_STATUS] = NOT_RUN;
         buf[P_WORDS] = (data.len() / WORD).max(1) as u8;
-        buf[P_FSSET] = fsset;
-        buf[P_FLPMC] = FLPMC_CODE;
-        buf[P_FLAP..P_FLAP + 2].copy_from_slice(&(flap as u16).to_le_bytes());
-        buf[P_FLSED..P_FLSED + 2].copy_from_slice(&(flsed as u16).to_le_bytes());
+        if self.g23() {
+            buf[G23_P_FLAPL..G23_P_FLAPL + 2].copy_from_slice(&(flap as u16).to_le_bytes());
+            buf[G23_P_FLSEDL..G23_P_FLSEDL + 2].copy_from_slice(&(flsed as u16).to_le_bytes());
+            buf[G23_P_FLAPH] = (flap >> 16) as u8;
+            buf[G23_P_FLSEDH] = (flsed >> 16) as u8;
+            buf[G23_P_FSET] = fsset;
+        } else {
+            buf[P_FSSET] = fsset;
+            buf[P_FLPMC] = FLPMC_CODE;
+            buf[P_FLAP..P_FLAP + 2].copy_from_slice(&(flap as u16).to_le_bytes());
+            buf[P_FLSED..P_FLSED + 2].copy_from_slice(&(flsed as u16).to_le_bytes());
+        }
         buf[P_FSSQ] = fssq;
         buf[PARAMS_LEN..].copy_from_slice(data);
         self.interface.write_mem(params, &buf)?;
@@ -256,22 +392,23 @@ impl Rl78<'_> {
     /// Erase the code flash blocks that `range` touches, in one command. The sequencer takes the
     /// first block's start and the last block's start with bits 9-2 set.
     pub(super) fn flash_erase(&mut self, range: Range<u32>) -> Result<(), Error> {
-        let first = range.start & !(BLOCK - 1);
-        let last = (range.end - 1) & !(BLOCK - 1);
-        let blocks = (last - first) / BLOCK + 1;
+        let block = self.flash_block();
+        let first = range.start & !(block - 1);
+        let last = (range.end - 1) & !(block - 1);
+        let blocks = (last - first) / block + 1;
         tracing::debug!(
             "rl78: erasing {blocks} block(s) {first:05X}H-{:05X}H",
-            last + BLOCK - 1
+            last + block - 1
         );
         self.flash_command(
             "erase",
             FSSQ_ERASE,
             first,
-            last | 0x3FC,
+            last | (block - WORD as u32),
             &[],
             ERASE_TIMEOUT_PER_BLOCK * blocks,
         )?;
-        self.state.breakpoints.erased(first..last + BLOCK);
+        self.state.breakpoints.erased(first..last + block);
         Ok(())
     }
 
@@ -326,6 +463,11 @@ impl Rl78Flash {
         Self {
             debug_stub: std::env::var("PROBE_RS_RL78_DEBUG_STUB").as_deref() != Ok("0"),
         }
+    }
+
+    /// The sequence for a part whose monitor has no debug stub yet: the security ID only.
+    pub fn without_stub() -> Self {
+        Self { debug_stub: false }
     }
 
     /// `data` for `address` as it goes into flash: the image's first page with the session's
@@ -490,9 +632,9 @@ impl DebugFlashSequence for Rl78Flash {
 
     fn erase_sector(&self, session: &mut Session, address: u64) -> Result<(), Error> {
         let address = address as u32;
-        session
-            .get_rl78_core()?
-            .flash_erase(address..address + BLOCK)
+        let mut core = session.get_rl78_core()?;
+        let block = core.flash_block();
+        core.flash_erase(address..address + block)
     }
 
     fn program(&self, session: &mut Session, address: u64, data: &[u8]) -> Result<(), Error> {
@@ -540,6 +682,28 @@ mod tests {
             .filter(|&i| relocated[i] != STUB_FLASH[i])
             .collect();
         assert_eq!(moved, STUB_FLASH_RELOCS.map(|at| at + 1));
+    }
+
+    #[test]
+    fn g23_flash_stub_layout() {
+        for buf in super::super::STUB_BUFS {
+            let code = relocate(STUB_FLASH_G23, &STUB_FLASH_G23_RELOCS, buf);
+            let addr = |off: usize| u16::from_le_bytes([code[off], code[off + 1]]);
+            let param = |p: usize| (buf - PARAMS_LEN as u32 + p as u32) as u16;
+            assert_eq!(addr(26), param(G23_P_FSET));
+            assert_eq!(addr(32), param(G23_P_FLAPL));
+            assert_eq!(addr(38), param(G23_P_FLAPH));
+            assert_eq!(addr(44), param(G23_P_FLSEDL));
+            assert_eq!(addr(50), param(G23_P_FLSEDH));
+            assert_eq!(addr(56), buf as u16);
+            assert_eq!(addr(59), param(P_WORDS));
+            assert_eq!(addr(72), param(P_FSSQ));
+            assert_eq!(addr(122), param(P_STATUS));
+            // MOVW ignores bit 0 of its address.
+            assert_eq!(param(G23_P_FLAPL) % 2, 0);
+            assert_eq!(param(G23_P_FLSEDL) % 2, 0);
+            assert_eq!(buf % 2, 0);
+        }
     }
 
     /// A first page as a toolchain links it: reset vector to 000D8H, option bytes with

@@ -60,3 +60,25 @@ variants:
       end: 0x100000
     cores:
     - main
+  flash_algorithms:
+  - rl78-g23-code-flash
+
+# Host-side, as for the G15: a sector is a 2 KB block, the erase unit; a page is what one call
+# writes, 64 words.
+flash_algorithms:
+- name: rl78-g23-code-flash
+  description: Code flash by self-programming, through the on-chip debugger
+  default: true
+  flash_properties:
+    address_range:
+      start: 0x0
+      end: 0x20000
+    page_size: 0x100
+    erased_byte_value: 0xff
+    program_page_timeout: 1000
+    erase_sector_timeout: 1000
+    sectors:
+    - size: 0x800
+      address: 0x0
+  cores:
+  - main

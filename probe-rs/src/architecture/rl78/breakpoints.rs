@@ -29,8 +29,6 @@ use crate::{BreakpointCause, CoreInterface, Error, HaltReason};
 /// Virtual breakpoint units. `FFH` traps have no hardware limit.
 pub(super) const UNITS: usize = 16;
 
-/// A code flash block, the erase unit.
-const BLOCK: u32 = 0x400;
 const TRAP: u8 = 0xFF;
 
 /// Breakpoints: the ones asked for, and the traps in memory with the bytes they replaced.
@@ -248,7 +246,8 @@ impl Rl78<'_> {
         for address in ram {
             self.toggle_trap_in_ram(address)?;
         }
-        let mut blocks: Vec<u32> = flash.iter().map(|a| a & !(BLOCK - 1)).collect();
+        let size = self.flash_block();
+        let mut blocks: Vec<u32> = flash.iter().map(|a| a & !(size - 1)).collect();
         blocks.dedup();
         for block in blocks {
             self.rewrite_block(block, &flash)?;
@@ -273,9 +272,10 @@ impl Rl78<'_> {
     /// write it back.
     fn rewrite_block(&mut self, block: u32, changes: &[u32]) -> Result<(), Error> {
         // As it is, traps included: the ones not changing stay.
-        let mut data = vec![0; BLOCK as usize];
+        let size = self.flash_block();
+        let mut data = vec![0; size as usize];
         self.read_bytes_raw(u64::from(block), &mut data)?;
-        for &address in changes.iter().filter(|a| *a & !(BLOCK - 1) == block) {
+        for &address in changes.iter().filter(|a| *a & !(size - 1) == block) {
             let at = (address - block) as usize;
             let bp = &mut self.state.breakpoints;
             match bp.planted.remove(&address) {
@@ -289,7 +289,7 @@ impl Rl78<'_> {
         tracing::debug!("rl78: rewriting block {block:05X}H for breakpoints");
         let planted = std::mem::take(&mut self.state.breakpoints.planted);
         let result = self
-            .flash_erase(block..block + BLOCK)
+            .flash_erase(block..block + size)
             .and_then(|()| self.flash_write(block, &data));
         // flash_erase forgets the traps in the block; they are in `data`, written back.
         self.state.breakpoints.planted = planted;
