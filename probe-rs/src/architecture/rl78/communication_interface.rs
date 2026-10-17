@@ -1027,6 +1027,9 @@ impl<L: Rl78Uart> UartOcd<L> {
         if self.g23.fast {
             self.g23_set_rate(false)?;
         }
+        if !single_step {
+            self.g23_write_raw(g23::GATE, &g23::BREAK_HANDLER)?;
+        }
         let sent = Instant::now();
         self.g23_expect(&[g23::RUN], &[g23::RUN], "run")?;
         self.state.locked = true;

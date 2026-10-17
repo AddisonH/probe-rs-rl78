@@ -618,6 +618,7 @@ fn g23_continue_from_a_fresh_attach_starts_at_the_entry() {
             .g23_write(0xF_FFFC, &[0x00])
             .g23_write(g23::STEP_ENABLE, &[0x00])
             .g23_rate(false)
+            .g23_write(g23::GATE, &g23::BREAK_HANDLER)
             .exchange(&[0x95], &[0x95]);
     });
     // What the flash enables, read before the first run, is not this test's business.
@@ -661,6 +662,7 @@ fn g23_a_stop_by_itself_is_unlocked_a_byte_at_a_time_until_ckc_is_read() {
     let mut s = Script::default();
     s.g23_attach()
         .g23_write(g23::STEP_ENABLE, &[0x00])
+        .g23_write(g23::GATE, &g23::BREAK_HANDLER)
         .exchange(&[0x95], &[0x95])
         .unsolicited(&[0x00])
         .exchange(&[0x90], &[0x05, 0x01])
@@ -689,6 +691,7 @@ fn g23_running(script: impl FnOnce(&mut Script)) -> UartOcd<ScriptedUart> {
     let mut s = Script::default();
     s.g23_attach()
         .g23_write(g23::STEP_ENABLE, &[0x00])
+        .g23_write(g23::GATE, &g23::BREAK_HANDLER)
         .exchange(&[0x95], &[0x95]);
     script(&mut s);
     let mut ocd = UartOcd::new(s.0, [0; 10]);

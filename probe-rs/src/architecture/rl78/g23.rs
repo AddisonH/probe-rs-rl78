@@ -41,6 +41,17 @@ pub const CONTEXT_LEN: usize = 10;
 /// Bit 0 makes `95H` execute one instruction.
 pub const STEP_ENABLE: u32 = 0xF_0088;
 
+/// Put at the gate before a run. In code flash programming mode the ROM cannot be read, and a
+/// break enters [`GATE`] instead. This returns to the program if `FFFAEH` holds no break cause
+/// (the byte was the host's) or code flash is still in that mode, and enters the ROM's break
+/// entry otherwise. Its last instruction's offset is the lock byte, `C6H` while the program
+/// runs. The vendor's handler, in that mode, branches to `F0800H`, which mirrors the start of
+/// the program's RAM.
+pub const BREAK_HANDLER: [u8; 21] = [
+    0xC1, 0x8E, 0xAE, 0x5C, 0x73, 0xDF, 0x03, 0xC0, 0x61, 0xFC, 0x8F, 0xC0, 0x02, 0x31, 0x13, 0xF7,
+    0xF1, 0x91, 0xDF, 0xFD, 0xEE,
+];
+
 /// Data flash, and its access control: bit 0 (DFLEN) enables reads.
 pub const DATA_FLASH: std::ops::Range<u32> = 0xF_1000..0xF_3000;
 pub const DFLCTL: u32 = 0xF_0090;
