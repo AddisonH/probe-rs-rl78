@@ -17,6 +17,11 @@
 //! in bank 0's C, then sends `00H` and waits for `90H` and an unlock. It touches neither DE
 //! nor SP, so those are the program's as they stand.
 
+use std::time::Duration;
+
+use super::communication_interface::{REPLY_TIMEOUT, Rl78Error, chunks};
+use super::protocol::CodecError;
+
 pub const VERSION: u8 = 0x90;
 pub const VERSION_REPLY: [u8; 2] = [0x05, 0x01];
 pub const UNLOCK: u8 = 0x91;
@@ -132,6 +137,73 @@ pub fn unlock_id(id: &[u8]) -> Vec<u8> {
     let mut out = id.to_vec();
     out.push(sum.wrapping_sub(1));
     out
+}
+
+/// What the monitor's commands need of a link: send `req`, and return the `n` bytes of its
+/// reply. Over a UART that is a write and a read; through a probe that relays bytes to the
+/// monitor, one exchange with the probe.
+pub trait MonitorLink {
+    fn transact(
+        &mut self,
+        req: &[u8],
+        n: usize,
+        op: &'static str,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, Rl78Error>;
+}
+
+pub fn expect(
+    link: &mut impl MonitorLink,
+    req: &[u8],
+    want: &[u8],
+    op: &'static str,
+) -> Result<(), Rl78Error> {
+    if link.transact(req, want.len(), op, REPLY_TIMEOUT)? != want {
+        return Err(CodecError::Protocol(op).into());
+    }
+    Ok(())
+}
+
+/// `F0000H`-`FFFFFH` only.
+pub fn read(link: &mut impl MonitorLink, address: u32, data: &mut [u8]) -> Result<(), Rl78Error> {
+    for (addr, range) in chunks(address, data.len()) {
+        let [lo, hi, ..] = addr.to_le_bytes();
+        let n = range.len();
+        let got = link.transact(&[READ, lo, hi, n as u8], n, "read", REPLY_TIMEOUT)?;
+        data[range].copy_from_slice(&got);
+    }
+    Ok(())
+}
+
+/// `F0000H`-`FFFFFH` only.
+pub fn write(link: &mut impl MonitorLink, address: u32, data: &[u8]) -> Result<(), Rl78Error> {
+    for (addr, range) in chunks(address, data.len()) {
+        let [lo, hi, ..] = addr.to_le_bytes();
+        let mut req = vec![WRITE, lo, hi, range.len() as u8];
+        req.extend_from_slice(&data[range]);
+        expect(link, &req, &[WRITE], "write")?;
+    }
+    Ok(())
+}
+
+/// Call the routine at [`GATE`] and wait up to `timeout` for it to return. The echo goes out
+/// before the call, so a `90H` sent behind it, which the monitor reads when the routine
+/// returns, is what says it has; `version_reply` is the monitor's answer to it.
+pub fn call(
+    link: &mut impl MonitorLink,
+    version_reply: &[u8],
+    timeout: Duration,
+) -> Result<(), Rl78Error> {
+    expect(link, &[CALL], &[CALL], "call")?;
+    if link.transact(&[VERSION], version_reply.len(), "call", timeout)? != version_reply {
+        return Err(CodecError::Protocol("call").into());
+    }
+    Ok(())
+}
+
+/// Return to the program, from the context block.
+pub fn run(link: &mut impl MonitorLink) -> Result<(), Rl78Error> {
+    expect(link, &[RUN], &[RUN], "run")
 }
 
 #[cfg(test)]

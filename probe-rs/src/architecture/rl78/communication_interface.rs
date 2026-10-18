@@ -306,7 +306,7 @@ const T_TOOL0_HOLD: Duration = Duration::from_millis(7);
 const T_SETTLE: Duration = Duration::from_millis(35);
 
 /// How long one reply may take. Replies are at most 257 bytes at 115200 baud, about 25 ms.
-const REPLY_TIMEOUT: Duration = Duration::from_millis(1000);
+pub(super) const REPLY_TIMEOUT: Duration = Duration::from_millis(1000);
 /// A pseudo-RRM/DMM reply: one byte from an interrupt handler, plus USB.
 const T_RRM: Duration = Duration::from_millis(30);
 /// Quiet on the line after a stop, before the last sync is taken to be complete.
@@ -652,12 +652,6 @@ impl<L: Rl78Uart> UartOcd<L> {
             .map(|_| ()))
     }
 
-    fn chunks(address: u32, len: usize) -> impl Iterator<Item = (u32, std::ops::Range<usize>)> {
-        (0..len)
-            .step_by(256)
-            .map(move |off| (address + off as u32, off..len.min(off + 256)))
-    }
-
     fn check_f_segment(address: u32, len: usize) -> Result<(), Rl78Error> {
         if address < protocol::ADDR16_BASE || address as usize + len > 0x10_0000 {
             return Err(Rl78Error::Other(format!(
@@ -666,6 +660,16 @@ impl<L: Rl78Uart> UartOcd<L> {
         }
         Ok(())
     }
+}
+
+/// `len` bytes from `address` in the pieces a monitor command moves: at most 256.
+pub(super) fn chunks(
+    address: u32,
+    len: usize,
+) -> impl Iterator<Item = (u32, std::ops::Range<usize>)> {
+    (0..len)
+        .step_by(256)
+        .map(move |off| (address + off as u32, off..len.min(off + 256)))
 }
 
 /// The G23 monitor's link for large transfers while halted.
@@ -732,13 +736,6 @@ impl<L: Rl78Uart> UartOcd<L> {
         let mut resp = vec![0; n];
         self.read_exact(&mut resp, op, timeout)?;
         Ok(resp)
-    }
-
-    fn g23_expect(&mut self, req: &[u8], want: &[u8], op: &'static str) -> Result<(), Rl78Error> {
-        if self.g23_xfer(req, want.len(), op)? != want {
-            return Err(CodecError::Protocol(op).into());
-        }
-        Ok(())
     }
 
     fn g23_attach(&mut self) -> Result<(), Rl78Error> {
@@ -891,7 +888,7 @@ impl<L: Rl78Uart> UartOcd<L> {
 
     /// Unlock; true if the monitor was unlocked already.
     fn g23_unlock(&mut self) -> Result<bool, Rl78Error> {
-        self.g23_expect(&[g23::VERSION], &g23::VERSION_REPLY, "version")?;
+        g23::expect(self, &[g23::VERSION], &g23::VERSION_REPLY, "version")?;
         match self.g23_xfer(&[g23::UNLOCK], 1, "unlock")?[0] {
             g23::UNLOCK_ALREADY => {
                 self.state.locked = false;
@@ -929,12 +926,7 @@ impl<L: Rl78Uart> UartOcd<L> {
     }
 
     fn g23_read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error> {
-        for (addr, range) in Self::chunks(address, data.len()) {
-            let [lo, hi, ..] = addr.to_le_bytes();
-            let n = range.len();
-            let got = self.g23_xfer(&[g23::READ, lo, hi, n as u8], n, "read")?;
-            data[range].copy_from_slice(&got);
-        }
+        g23::read(self, address, data)?;
         if g23_covers(address, data.len(), g23::CKC) {
             self.g23.sub = Some(data[(g23::CKC - address) as usize] & g23::CKC_CLS != 0);
         }
@@ -963,12 +955,7 @@ impl<L: Rl78Uart> UartOcd<L> {
     }
 
     fn g23_write_raw(&mut self, address: u32, data: &[u8]) -> Result<(), Rl78Error> {
-        for (addr, range) in Self::chunks(address, data.len()) {
-            let [lo, hi, ..] = addr.to_le_bytes();
-            let mut req = vec![g23::WRITE, lo, hi, range.len() as u8];
-            req.extend_from_slice(&data[range]);
-            self.g23_expect(&req, &[g23::WRITE], "write")?;
-        }
+        g23::write(self, address, data)?;
         // A switch to the subsystem clock takes effect as the byte is stored, and one away
         // from it within a few of its cycles, before the host can send again.
         if g23_covers(address, data.len(), g23::CKC) {
@@ -1018,9 +1005,9 @@ impl<L: Rl78Uart> UartOcd<L> {
         self.g23.gate_clobbered = true;
         self.g23.gate_service = false;
         // The echo goes out at the old rate, before the routine runs.
-        self.g23_expect(&[g23::CALL], &[g23::CALL], "rate change")?;
+        g23::expect(self, &[g23::CALL], &[g23::CALL], "rate change")?;
         self.link.set_line(baud, false)?;
-        self.g23_expect(&[g23::VERSION], &g23::VERSION_REPLY, "rate change")?;
+        g23::expect(self, &[g23::VERSION], &g23::VERSION_REPLY, "rate change")?;
         self.g23.fast = fast;
         tracing::debug!("rl78: link at {baud} baud");
         Ok(())
@@ -1035,11 +1022,11 @@ impl<L: Rl78Uart> UartOcd<L> {
             self.g23.gate_clobbered = true;
             self.g23.gate_service = true;
         }
-        self.g23_expect(&[g23::CALL], &[g23::CALL], "read")?;
+        g23::expect(self, &[g23::CALL], &[g23::CALL], "read")?;
         let ack = [g23::SERVICE_ACK];
         let stay = data.len() > 256;
         if stay {
-            self.g23_expect(&[g23::SERVICE_STAY, 0, 0, 0, 0], &ack, "read")?;
+            g23::expect(self, &[g23::SERVICE_STAY, 0, 0, 0, 0], &ack, "read")?;
         }
         let mut at = address;
         for chunk in data.chunks_mut(256) {
@@ -1049,7 +1036,7 @@ impl<L: Rl78Uart> UartOcd<L> {
             at += chunk.len() as u32;
         }
         if stay {
-            self.g23_expect(&[g23::SERVICE_LEAVE, 0, 0, 0, 0], &ack, "read")?;
+            g23::expect(self, &[g23::SERVICE_LEAVE, 0, 0, 0, 0], &ack, "read")?;
         }
         Ok(())
     }
@@ -1060,14 +1047,7 @@ impl<L: Rl78Uart> UartOcd<L> {
         {
             self.g23_write_raw(g23::GATE, &gate)?;
         }
-        // The echo goes out before the call, so a 90H sent behind it, which the monitor reads
-        // when the routine returns, is what says it has.
-        self.g23_expect(&[g23::CALL], &[g23::CALL], "call")?;
-        let done = self.g23_xfer_within(&[g23::VERSION], 2, "call", timeout)?;
-        if done != g23::VERSION_REPLY {
-            return Err(CodecError::Protocol("call").into());
-        }
-        Ok(())
+        g23::call(self, &g23::VERSION_REPLY, timeout)
     }
 
     fn g23_execute(&mut self, single_step: bool) -> Result<Option<Sync>, Rl78Error> {
@@ -1079,7 +1059,7 @@ impl<L: Rl78Uart> UartOcd<L> {
             self.g23_write_raw(g23::GATE, &g23::BREAK_HANDLER)?;
         }
         let sent = Instant::now();
-        self.g23_expect(&[g23::RUN], &[g23::RUN], "run")?;
+        g23::run(self)?;
         self.state.locked = true;
         // The monitor plants a RET at the gate on every entry.
         self.g23 = G23Link {
@@ -1258,6 +1238,18 @@ impl<L: Rl78Uart> UartOcd<L> {
     }
 }
 
+impl<L: Rl78Uart> g23::MonitorLink for UartOcd<L> {
+    fn transact(
+        &mut self,
+        req: &[u8],
+        n: usize,
+        op: &'static str,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, Rl78Error> {
+        self.g23_xfer_within(req, n, op, timeout)
+    }
+}
+
 impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     fn set_monitor(&mut self, monitor: Rl78Monitor) -> Result<(), Rl78Error> {
         self.monitor = monitor;
@@ -1380,7 +1372,7 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
             return self.g23_read(address, data);
         }
         Self::check_f_segment(address, data.len())?;
-        for (addr, range) in Self::chunks(address, data.len()) {
+        for (addr, range) in chunks(address, data.len()) {
             let args = Args {
                 addr,
                 len: range.len() as u16,
@@ -1398,7 +1390,7 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
             return self.g23_write(address, data);
         }
         Self::check_f_segment(address, data.len())?;
-        for (addr, range) in Self::chunks(address, data.len()) {
+        for (addr, range) in chunks(address, data.len()) {
             let args = Args {
                 addr,
                 len: range.len() as u16,
