@@ -2,12 +2,13 @@
 //!
 //! The RL78 architecture itself (the on-chip-debug protocol, the core driver) is part of probe-rs,
 //! because plugins cannot add architectures. This crate carries the rest: the COM-port probe found
-//! on Renesas Fast Prototyping Boards, and RL78 target descriptions.
+//! on Renesas Fast Prototyping Boards, the E2 Lite, and RL78 target descriptions.
 
 use probe_rs::plugin;
 use probe_rs_target::ChipFamily;
 
 pub mod com;
+pub mod e2lite;
 pub mod vendor;
 
 /// Register the RL78 probes and targets with probe-rs.
@@ -17,13 +18,14 @@ pub fn register_plugin() {
         vendors: &[&vendor::RenesasRl78],
         image_formats: &[],
         targets: &targets,
-        probe_drivers: &[&com::ComProbeFactory],
+        probe_drivers: &[&com::ComProbeFactory, &e2lite::E2LiteProbeFactory],
     });
 }
 
 const TARGETS: &[&str] = &[
     include_str!("../targets/RL78_G15.yaml"),
     include_str!("../targets/RL78_G23.yaml"),
+    include_str!("../targets/RL78_F24.yaml"),
 ];
 
 fn targets() -> Vec<ChipFamily> {

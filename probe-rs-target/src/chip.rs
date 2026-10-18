@@ -266,6 +266,8 @@ pub enum Rl78Monitor {
     G15,
     /// The RL78/G23's, shared by the R7F10x parts.
     G23,
+    /// The RL78/F24's: the G23's commands, reached through an E2 Lite.
+    F24,
 }
 
 impl Rl78Monitor {
@@ -273,6 +275,7 @@ impl Rl78Monitor {
     pub fn security_id_len(self) -> usize {
         match self {
             Rl78Monitor::G15 | Rl78Monitor::G23 => 10,
+            Rl78Monitor::F24 => 16,
         }
     }
 }

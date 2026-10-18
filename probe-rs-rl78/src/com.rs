@@ -64,7 +64,8 @@ const USB_TIMEOUT: Duration = Duration::from_millis(1000);
 /// so an idle FT232R answers within about that with status bytes only.
 const POLL: Duration = Duration::from_millis(5);
 
-/// Environment variable holding the security ID, as hex digits: 20 for the G15 and G23.
+/// Environment variable holding the security ID, as hex digits: 20 for the G15 and G23, 32 for
+/// the F24.
 pub const SECURITY_ID_ENV: &str = "PROBE_RS_RL78_SECURITY_ID";
 
 fn usb_err(e: impl fmt::Display) -> Rl78Error {
@@ -352,7 +353,7 @@ fn is_ft232r(d: &nusb::DeviceInfo) -> bool {
     d.vendor_id() == VID_FTDI && d.product_id() == PID_FT232R
 }
 
-fn security_id() -> Result<SecurityId, ProbeCreationError> {
+pub(crate) fn security_id() -> Result<SecurityId, ProbeCreationError> {
     match std::env::var(SECURITY_ID_ENV) {
         Err(_) => Ok(SecurityId::BLANK),
         Ok(hex) => SecurityId::parse(&hex).ok_or(ProbeCreationError::Other(

@@ -4,7 +4,10 @@ use std::fmt;
 
 use probe_rs::{
     Error,
-    architecture::rl78::{communication_interface::Rl78Error, sequences::G23Rl78Sequence},
+    architecture::rl78::{
+        communication_interface::Rl78Error,
+        sequences::{F24Rl78Sequence, G23Rl78Sequence},
+    },
     config::{DebugSequence, Registry},
     probe::Probe,
     vendor::Vendor,
@@ -27,9 +30,11 @@ impl Vendor for RenesasRl78 {
         chip.cores
             .iter()
             .find_map(|core| match &core.core_access_options {
-                CoreAccessOptions::Rl78(o) if o.monitor == Rl78Monitor::G23 => {
-                    Some(DebugSequence::Rl78(G23Rl78Sequence::create()))
-                }
+                CoreAccessOptions::Rl78(o) => match o.monitor {
+                    Rl78Monitor::G15 => None,
+                    Rl78Monitor::G23 => Some(DebugSequence::Rl78(G23Rl78Sequence::create())),
+                    Rl78Monitor::F24 => Some(DebugSequence::Rl78(F24Rl78Sequence::create())),
+                },
                 _ => None,
             })
     }
@@ -47,8 +52,11 @@ impl Vendor for RenesasRl78 {
         }
         let interface = probe.try_get_rl78_interface()?;
         let mut found = None;
-        for monitor in [Rl78Monitor::G15, Rl78Monitor::G23] {
-            interface.set_monitor(monitor)?;
+        for monitor in [Rl78Monitor::G15, Rl78Monitor::G23, Rl78Monitor::F24] {
+            // Each probe speaks to some monitors only.
+            if interface.set_monitor(monitor).is_err() {
+                continue;
+            }
             match interface.attach() {
                 Ok(_) => {
                     found = Some(monitor);

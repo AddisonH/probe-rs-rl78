@@ -32,11 +32,13 @@ use crate::{
 mod breakpoints;
 pub mod communication_interface;
 mod comparators;
+mod f24;
 mod flash;
 mod g23;
 mod isa;
 pub mod protocol;
 pub mod registers;
+pub mod relay;
 pub mod sequences;
 
 pub use flash::Rl78Flash;
@@ -692,9 +694,13 @@ impl<'probe> Rl78<'probe> {
         Ok(read?)
     }
 
-    /// The monitor is the G23's, not the G15's.
+    /// The monitor speaks the G23's commands and keeps its context block: the G23's or the
+    /// F24's, not the G15's.
     fn g23(&self) -> bool {
-        self.interface.monitor() == Rl78Monitor::G23
+        matches!(
+            self.interface.monitor(),
+            Rl78Monitor::G23 | Rl78Monitor::F24
+        )
     }
 
     /// The routines' buffer for this halt: the first of [`STUB_BUFS`] the monitor's stack leaves

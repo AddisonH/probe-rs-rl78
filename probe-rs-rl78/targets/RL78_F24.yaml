@@ -1,0 +1,66 @@
+# RL78/F24, written by hand from the RL78/F23, F24 User's Manual: Hardware. No flash algorithm
+# yet: code flash is read, not written.
+name: RL78_F24
+variants:
+- name: R7F124FPJ
+  cores:
+  - name: main
+    type: rl78
+    core_access_options: !Rl78
+      monitor: f24
+  memory_map:
+  - !Nvm
+    name: Code flash
+    range:
+      start: 0x0
+      end: 0x40000
+    cores:
+    - main
+    access:
+      boot: true
+  - !Generic
+    name: OCD ROM
+    range:
+      start: 0xee000
+      end: 0xf0000
+    cores:
+    - main
+  - !Generic
+    name: 2nd SFR
+    range:
+      start: 0xf0000
+      end: 0xf0800
+    cores:
+    - main
+  - !Nvm
+    name: Data flash
+    range:
+      start: 0xf1000
+      end: 0xf5000
+    cores:
+    - main
+    access:
+      execute: false
+  - !Generic
+    name: Code flash mirror
+    range:
+      start: 0xf5000
+      end: 0xf9f00
+    cores:
+    - main
+  # RAMSAR sets where RAM starts: FEF00H after a reset, F9F00H at most. The general-purpose
+  # registers follow it at FFEE0H-FFEFFH.
+  - !Ram
+    name: RAM
+    range:
+      start: 0xf9f00
+      end: 0xfff00
+    cores:
+    - main
+  - !Generic
+    name: SFR
+    range:
+      start: 0xfff00
+      end: 0x100000
+    cores:
+    - main

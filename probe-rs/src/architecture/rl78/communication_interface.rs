@@ -651,15 +651,6 @@ impl<L: Rl78Uart> UartOcd<L> {
             .rrm_command(commit, nibble, |r| r == ack, Trailing::Known)?
             .map(|_| ()))
     }
-
-    fn check_f_segment(address: u32, len: usize) -> Result<(), Rl78Error> {
-        if address < protocol::ADDR16_BASE || address as usize + len > 0x10_0000 {
-            return Err(Rl78Error::Other(format!(
-                "{address:05X}H+{len} is outside F0000H-FFFFFH, which is all the monitor reaches"
-            )));
-        }
-        Ok(())
-    }
 }
 
 /// `len` bytes from `address` in the pieces a monitor command moves: at most 256.
@@ -670,6 +661,16 @@ pub(super) fn chunks(
     (0..len)
         .step_by(256)
         .map(move |off| (address + off as u32, off..len.min(off + 256)))
+}
+
+/// Check that a monitor command reaches `len` bytes at `address`.
+pub(super) fn check_f_segment(address: u32, len: usize) -> Result<(), Rl78Error> {
+    if address < protocol::ADDR16_BASE || address as usize + len > 0x10_0000 {
+        return Err(Rl78Error::Other(format!(
+            "{address:05X}H+{len} is outside F0000H-FFFFFH, which is all the monitor reaches"
+        )));
+    }
+    Ok(())
 }
 
 /// The G23 monitor's link for large transfers while halted.
@@ -920,7 +921,7 @@ impl<L: Rl78Uart> UartOcd<L> {
     }
 
     fn g23_read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error> {
-        Self::check_f_segment(address, data.len())?;
+        check_f_segment(address, data.len())?;
         self.g23_bulk(data.len())?;
         self.g23_read_raw(address, data)
     }
@@ -934,7 +935,7 @@ impl<L: Rl78Uart> UartOcd<L> {
     }
 
     fn g23_write(&mut self, address: u32, data: &[u8]) -> Result<(), Rl78Error> {
-        Self::check_f_segment(address, data.len())?;
+        check_f_segment(address, data.len())?;
         let clock = [g23::CSC, g23::CKC, g23::HOCODIV, g23::MOCODIV]
             .into_iter()
             .any(|reg| g23_covers(address, data.len(), reg));
@@ -1252,6 +1253,11 @@ impl<L: Rl78Uart> g23::MonitorLink for UartOcd<L> {
 
 impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
     fn set_monitor(&mut self, monitor: Rl78Monitor) -> Result<(), Rl78Error> {
+        if monitor == Rl78Monitor::F24 {
+            return Err(Rl78Error::Unsupported(
+                "this part's debug monitor on this probe",
+            ));
+        }
         self.monitor = monitor;
         Ok(())
     }
@@ -1371,7 +1377,7 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
         if self.monitor == Rl78Monitor::G23 {
             return self.g23_read(address, data);
         }
-        Self::check_f_segment(address, data.len())?;
+        check_f_segment(address, data.len())?;
         for (addr, range) in chunks(address, data.len()) {
             let args = Args {
                 addr,
@@ -1389,7 +1395,7 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
         if self.monitor == Rl78Monitor::G23 {
             return self.g23_write(address, data);
         }
-        Self::check_f_segment(address, data.len())?;
+        check_f_segment(address, data.len())?;
         for (addr, range) in chunks(address, data.len()) {
             let args = Args {
                 addr,

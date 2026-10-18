@@ -63,3 +63,16 @@ impl Rl78DebugSequence for G23Rl78Sequence {
         Some(Arc::new(Rl78Flash::g23()))
     }
 }
+
+/// The RL78/F24. Flash programming is not supported yet.
+#[derive(Debug)]
+pub struct F24Rl78Sequence;
+
+impl F24Rl78Sequence {
+    /// Create the sequence.
+    pub fn create() -> Arc<dyn Rl78DebugSequence> {
+        Arc::new(Self)
+    }
+}
+
+impl Rl78DebugSequence for F24Rl78Sequence {}

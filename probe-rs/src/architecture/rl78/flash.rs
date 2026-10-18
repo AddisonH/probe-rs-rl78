@@ -759,7 +759,8 @@ pub(crate) fn attach_or_recover(
     let flash = code_flash(target)?;
     let image = match interface.monitor() {
         Rl78Monitor::G23 => monitor_image_g23(flash.len(), &interface.security_id()?),
-        _ => monitor_image(flash.len(), &interface.security_id()?),
+        Rl78Monitor::G15 => monitor_image(flash.len(), &interface.security_id()?),
+        Rl78Monitor::F24 => return Err(Rl78Error::Unsupported("recovery on this part").into()),
     };
     interface.erase_all_and_program(&image)?;
     Ok(Attached::UnderReset(interface.attach()?))
