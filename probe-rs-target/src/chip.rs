@@ -268,6 +268,15 @@ pub enum Rl78Monitor {
     G23,
 }
 
+impl Rl78Monitor {
+    /// Bytes in the security ID that unlocks this monitor.
+    pub fn security_id_len(self) -> usize {
+        match self {
+            Rl78Monitor::G15 | Rl78Monitor::G23 => 10,
+        }
+    }
+}
+
 /// The data required to access an Xtensa core
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

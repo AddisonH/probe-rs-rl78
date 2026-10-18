@@ -601,7 +601,7 @@ impl Rl78Flash {
         &self,
         address: u64,
         data: &'d [u8],
-        session_id: [u8; SECURITY_ID_LEN],
+        session_id: &[u8],
         report: bool,
     ) -> Cow<'d, [u8]> {
         if address != 0 || data.len() < HEAD {
@@ -612,13 +612,13 @@ impl Rl78Flash {
 
         let id = &mut page[SECURITY_ID];
         if erased(SECURITY_ID) {
-            id.copy_from_slice(&session_id);
+            id.copy_from_slice(session_id);
             if report {
                 tracing::info!(
                     "rl78: the image leaves the security ID erased: writing the session's"
                 );
             }
-        } else if report && *id != session_id {
+        } else if report && *id != *session_id {
             tracing::warn!(
                 "rl78: the image sets the security ID to {id:02X?}, not the session's; set \
                  PROBE_RS_RL78_SECURITY_ID to it to attach afterwards"
@@ -703,12 +703,12 @@ pub(crate) fn code_flash(target: &Target) -> Result<Range<u32>, Error> {
 /// Erased code flash the debugger can attach to: the debug stub with the reset vector on it,
 /// the session's security ID, and option bytes that enable debugging. The stub branches to
 /// `0FFFFH`, so the part stops in the monitor whenever it boots, until a program is flashed.
-fn monitor_image(size: usize, security_id: [u8; SECURITY_ID_LEN]) -> Vec<u8> {
+fn monitor_image(size: usize, security_id: &[u8]) -> Vec<u8> {
     let mut image = vec![0xFF; size];
     image[..2].copy_from_slice(&(DEBUG_STUB_AT as u16).to_le_bytes());
     image[0xC2] = 0xF9;
     image[OCD_OPTION] = 0x8F;
-    image[SECURITY_ID].copy_from_slice(&security_id);
+    image[SECURITY_ID].copy_from_slice(security_id);
     image[DEBUG_STUB_AT..DEBUG_STUB_AT + DEBUG_STUB.len()].copy_from_slice(&DEBUG_STUB);
     image
 }
@@ -716,10 +716,10 @@ fn monitor_image(size: usize, security_id: [u8; SECURITY_ID_LEN]) -> Vec<u8> {
 /// The G23's [`monitor_image`]: option bytes as the FPB's sample project sets them, with a
 /// wrong security ID not erasing flash, and the session's ID. The G23 needs no stub: the debugger
 /// starts its programs itself.
-fn monitor_image_g23(size: usize, security_id: [u8; SECURITY_ID_LEN]) -> Vec<u8> {
+fn monitor_image_g23(size: usize, security_id: &[u8]) -> Vec<u8> {
     let mut image = vec![0xFF; size];
     image[0xC0..0xC4].copy_from_slice(&[0xEF, 0x3A, 0xE8, 0x85]);
-    image[SECURITY_ID].copy_from_slice(&security_id);
+    image[SECURITY_ID].copy_from_slice(security_id);
     image
 }
 
@@ -758,8 +758,8 @@ pub(crate) fn attach_or_recover(
     );
     let flash = code_flash(target)?;
     let image = match interface.monitor() {
-        Rl78Monitor::G23 => monitor_image_g23(flash.len(), interface.security_id()),
-        _ => monitor_image(flash.len(), interface.security_id()),
+        Rl78Monitor::G23 => monitor_image_g23(flash.len(), &interface.security_id()?),
+        _ => monitor_image(flash.len(), &interface.security_id()?),
     };
     interface.erase_all_and_program(&image)?;
     Ok(Attached::UnderReset(interface.attach()?))
@@ -805,7 +805,7 @@ impl DebugFlashSequence for Rl78Flash {
         if self.flash_protocol() {
             // A G23 whose ID is erased refuses every ID, so block 0 gets the session's back.
             let erase: Vec<u32> = flash.clone().step_by(g23::BLOCK).collect();
-            let first = monitor_image_g23(g23::BLOCK, core.interface.security_id());
+            let first = monitor_image_g23(g23::BLOCK, &core.interface.security_id()?);
             core.interface
                 .flash_protocol_write(&erase, &[(0, &first)])?;
             return core.attach_after_flash_protocol(&erase);
@@ -851,7 +851,7 @@ impl DebugFlashSequence for Rl78Flash {
         let mut core = session.get_rl78_core()?;
         if let Some(first) = blocks.get_mut(&0) {
             let image = self
-                .debug_image(0, first, core.interface.security_id(), true)
+                .debug_image(0, first, &core.interface.security_id()?, true)
                 .into_owned();
             *first = image;
         }
@@ -872,13 +872,13 @@ impl DebugFlashSequence for Rl78Flash {
 
     fn program(&self, session: &mut Session, address: u64, data: &[u8]) -> Result<(), Error> {
         let mut core = session.get_rl78_core()?;
-        let data = self.debug_image(address, data, core.interface.security_id(), true);
+        let data = self.debug_image(address, data, &core.interface.security_id()?, true);
         core.flash_write(address as u32, &data)
     }
 
     fn verify(&self, session: &mut Session, address: u64, data: &[u8]) -> Result<bool, Error> {
         let mut core = session.get_rl78_core()?;
-        let expected = self.debug_image(address, data, core.interface.security_id(), false);
+        let expected = self.debug_image(address, data, &core.interface.security_id()?, false);
         let mut got = vec![0; data.len()];
         core.read(address, &mut got)?;
         Ok(got == *expected)
@@ -946,7 +946,7 @@ mod tests {
             debug_stub: true,
             monitor: Rl78Monitor::G23,
         }
-        .debug_image(0, &page, ID, false);
+        .debug_image(0, &page, &ID, false);
         assert_eq!(
             out[..4],
             [0xB6, 0x00, 0x01, 0xFF],
@@ -998,7 +998,7 @@ mod tests {
             debug_stub: true,
             monitor: Rl78Monitor::G15,
         }
-        .debug_image(0, &page, ID, false);
+        .debug_image(0, &page, &ID, false);
         assert_eq!(out[..2], [0xCE, 0x00], "reset vector to the stub");
         assert_eq!(out[0xC3], 0x8F, "debug-in-use bits 3 and 1");
         assert_eq!(out[SECURITY_ID], ID);
@@ -1018,7 +1018,7 @@ mod tests {
             debug_stub: true,
             monitor: Rl78Monitor::G15,
         }
-        .debug_image(0, &page, ID, false);
+        .debug_image(0, &page, &ID, false);
         assert_eq!(
             *out,
             page[..],
@@ -1030,7 +1030,7 @@ mod tests {
             debug_stub: false,
             monitor: Rl78Monitor::G15,
         }
-        .debug_image(0, &page, ID, false);
+        .debug_image(0, &page, &ID, false);
         assert_eq!(out[..2], page[..2], "no stub when asked");
         assert_eq!(out[SECURITY_ID], ID, "the ID all the same");
 
@@ -1040,7 +1040,7 @@ mod tests {
                 debug_stub: true,
                 monitor: Rl78Monitor::G15,
             }
-            .debug_image(0x100, &tail, ID, false),
+            .debug_image(0x100, &tail, &ID, false),
             tail[..]
         );
     }

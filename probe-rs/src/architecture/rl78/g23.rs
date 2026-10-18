@@ -17,8 +17,6 @@
 //! in bank 0's C, then sends `00H` and waits for `90H` and an unlock. It touches neither DE
 //! nor SP, so those are the program's as they stand.
 
-use super::protocol::SECURITY_ID_LEN;
-
 pub const VERSION: u8 = 0x90;
 pub const VERSION_REPLY: [u8; 2] = [0x05, 0x01];
 pub const UNLOCK: u8 = 0x91;
@@ -129,13 +127,10 @@ pub const PC_PROGRAM: u8 = 0x40;
 pub const BLOCK: usize = 0x800;
 
 /// The security ID followed by its checksum, the sum of its bytes less one.
-pub fn unlock_id(id: &[u8; SECURITY_ID_LEN]) -> [u8; SECURITY_ID_LEN + 1] {
-    let mut out = [0; SECURITY_ID_LEN + 1];
-    out[..SECURITY_ID_LEN].copy_from_slice(id);
-    out[SECURITY_ID_LEN] = id
-        .iter()
-        .fold(0u8, |s, b| s.wrapping_add(*b))
-        .wrapping_sub(1);
+pub fn unlock_id(id: &[u8]) -> Vec<u8> {
+    let sum = id.iter().fold(0u8, |s, b| s.wrapping_add(*b));
+    let mut out = id.to_vec();
+    out.push(sum.wrapping_sub(1));
     out
 }
 
@@ -160,7 +155,7 @@ mod tests {
 
     #[test]
     fn blank_id_checksum() {
-        assert_eq!(unlock_id(&[0; SECURITY_ID_LEN])[SECURITY_ID_LEN], 0xFF);
-        assert_eq!(unlock_id(&[0x01; SECURITY_ID_LEN])[SECURITY_ID_LEN], 0x09);
+        assert_eq!(unlock_id(&[0; 10])[10], 0xFF);
+        assert_eq!(unlock_id(&[0x01; 10])[10], 0x09);
     }
 }

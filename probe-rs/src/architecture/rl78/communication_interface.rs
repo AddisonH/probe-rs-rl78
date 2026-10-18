@@ -16,7 +16,7 @@ use std::{fmt, time::Duration, time::Instant};
 use probe_rs_target::Rl78Monitor;
 
 use super::g23;
-use super::protocol::{self, Args, CodecError, Op, Phase, SECURITY_ID_LEN, SYNC_LEN, Sync};
+use super::protocol::{self, Args, CodecError, Op, Phase, SYNC_LEN, Sync};
 use crate::probe::DebugProbeError;
 
 /// An error from the RL78 debug link.
@@ -42,6 +42,14 @@ pub enum Rl78Error {
     /// The security ID was rejected. Set the part's ID with PROBE_RS_RL78_SECURITY_ID (a blank
     /// G15's is FFFFFFFFFFFFFFFFFFFF; a blank G23 refuses every ID).
     SecurityIdRejected,
+
+    /// The security ID has {given} bytes; this part's has {needed}.
+    SecurityIdLength {
+        /// Bytes given.
+        given: usize,
+        /// Bytes the part's monitor takes.
+        needed: usize,
+    },
 
     /// The core is running; {0} needs it halted.
     NotHalted(&'static str),
@@ -134,7 +142,7 @@ pub trait Rl78OcdInterface: Send + fmt::Debug {
 
     /// The security ID this interface unlocks with. Flash programming writes it into an image
     /// that leaves the part's ID erased, so the next attach still unlocks.
-    fn security_id(&self) -> [u8; SECURITY_ID_LEN];
+    fn security_id(&self) -> Result<Vec<u8>, Rl78Error>;
 
     /// Read memory in `F0000H`–`FFFFFH`. The target must be halted.
     fn read_mem(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error>;
@@ -310,12 +318,53 @@ const T_ATTACH_RUNNING: Duration = Duration::from_millis(100);
 /// explicitly.
 const STEP_ENABLE: u32 = 0xF_0085;
 
+/// The security ID a session unlocks with. Its length depends on the part, which is not known
+/// when the probe is opened, so it is checked when the session uses it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SecurityId(Option<Vec<u8>>);
+
+impl SecurityId {
+    /// No ID given: the part's is taken to be all `00H`, as on a part that was never given one.
+    pub const BLANK: Self = Self(None);
+
+    /// The ID as hex digits.
+    pub fn parse(hex: &str) -> Option<Self> {
+        let hex: Vec<char> = hex.chars().filter(|c| !c.is_whitespace()).collect();
+        if hex.is_empty() || !hex.len().is_multiple_of(2) {
+            return None;
+        }
+        hex.chunks(2)
+            .map(|d| u8::from_str_radix(&d.iter().collect::<String>(), 16).ok())
+            .collect::<Option<Vec<u8>>>()
+            .map(|id| Self(Some(id)))
+    }
+
+    /// The ID for `monitor`.
+    pub fn for_monitor(&self, monitor: Rl78Monitor) -> Result<Vec<u8>, Rl78Error> {
+        let needed = monitor.security_id_len();
+        match &self.0 {
+            None => Ok(vec![0; needed]),
+            Some(id) if id.len() == needed => Ok(id.clone()),
+            Some(id) => Err(Rl78Error::SecurityIdLength {
+                given: id.len(),
+                needed,
+            }),
+        }
+    }
+}
+
+impl<const N: usize> From<[u8; N]> for SecurityId {
+    fn from(id: [u8; N]) -> Self {
+        Self(Some(id.to_vec()))
+    }
+}
+
 /// The on-chip debugger driven over a UART, with the protocol codec in the host.
 pub struct UartOcd<L> {
     link: L,
     monitor: Rl78Monitor,
     state: protocol::State,
-    security_id: [u8; SECURITY_ID_LEN],
+    security_id: SecurityId,
     /// The last pseudo-RRM data reply: if the target had stopped, it was the sync's first byte.
     rrm_last_data: Option<u8>,
     g23: G23Link,
@@ -348,14 +397,13 @@ impl<L: fmt::Debug> fmt::Debug for UartOcd<L> {
 }
 
 impl<L: Rl78Uart> UartOcd<L> {
-    /// Wrap a link. `security_id` unlocks every session; a part that was never given one has ten
-    /// `00H` bytes.
-    pub fn new(link: L, security_id: [u8; SECURITY_ID_LEN]) -> Self {
+    /// Wrap a link. `security_id` unlocks every session.
+    pub fn new(link: L, security_id: impl Into<SecurityId>) -> Self {
         Self {
             link,
             monitor: Rl78Monitor::G15,
             state: protocol::State::new(),
-            security_id,
+            security_id: security_id.into(),
             rrm_last_data: None,
             g23: G23Link::default(),
         }
@@ -850,7 +898,7 @@ impl<L: Rl78Uart> UartOcd<L> {
                 return Ok(true);
             }
             g23::UNLOCK_CHALLENGE => {
-                let id = g23::unlock_id(&self.security_id);
+                let id = g23::unlock_id(&self.security_id()?);
                 match self.g23_xfer(&id, 1, "security ID")?[0] {
                     g23::UNLOCK_ACCEPTED => {}
                     g23::UNLOCK_HALTED => {
@@ -1261,8 +1309,8 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
         }
     }
 
-    fn security_id(&self) -> [u8; SECURITY_ID_LEN] {
-        self.security_id
+    fn security_id(&self) -> Result<Vec<u8>, Rl78Error> {
+        self.security_id.for_monitor(self.monitor)
     }
 
     fn read_far(&mut self, address: u32, data: &mut [u8]) -> Result<(), Rl78Error> {
@@ -1316,7 +1364,7 @@ impl<L: Rl78Uart> Rl78OcdInterface for UartOcd<L> {
             return self.g23_unlock().map(|_| ());
         }
         self.xfer(Op::UnlockChallenge, &Args::default(), None)?;
-        let id = self.security_id;
+        let id = self.security_id()?;
         let args = Args {
             data: &id,
             ..Args::default()
@@ -1572,7 +1620,7 @@ impl<L: Rl78Uart> UartOcd<L> {
 
 #[cfg(test)]
 mod rrm_tests {
-    use super::{Sync, first_sync};
+    use super::{Rl78Error, Rl78Monitor, SecurityId, Sync, first_sync};
 
     const SYNC: [u8; 5] = [0x12, 0x34, 0x56, 0x78, 0x00];
 
@@ -1605,5 +1653,26 @@ mod rrm_tests {
         assert_eq!(first_sync(&[1, 2, 3, 4, 5], None), None, "no prompt byte");
         assert_eq!(first_sync(&[1, 2, 3], Some(0)), None);
         assert_eq!(first_sync(&[], None), None);
+    }
+
+    #[test]
+    fn security_id_length_is_the_monitors() {
+        assert_eq!(
+            SecurityId::BLANK.for_monitor(Rl78Monitor::G23).unwrap(),
+            [0; 10]
+        );
+        let id = SecurityId::parse("00 11 22 33 44 55 66 77 88 99").unwrap();
+        assert_eq!(id.for_monitor(Rl78Monitor::G15).unwrap()[9], 0x99);
+        assert!(matches!(
+            SecurityId::parse("00112233")
+                .unwrap()
+                .for_monitor(Rl78Monitor::G15),
+            Err(Rl78Error::SecurityIdLength {
+                given: 4,
+                needed: 10
+            })
+        ));
+        assert_eq!(SecurityId::parse("0"), None);
+        assert_eq!(SecurityId::parse("zz"), None);
     }
 }

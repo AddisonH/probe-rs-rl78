@@ -23,9 +23,8 @@ use nusb::{
     transfer::{Buffer, Bulk, ControlOut, ControlType, In, Out, Recipient},
 };
 use probe_rs::{
-    architecture::rl78::{
-        communication_interface::{Rl78Error, Rl78OcdInterface, Rl78Uart, UartOcd},
-        protocol::SECURITY_ID_LEN,
+    architecture::rl78::communication_interface::{
+        Rl78Error, Rl78OcdInterface, Rl78Uart, SecurityId, UartOcd,
     },
     probe::{
         DebugProbe, DebugProbeError, DebugProbeInfo, DebugProbeSelector, ProbeCreationError,
@@ -65,7 +64,7 @@ const USB_TIMEOUT: Duration = Duration::from_millis(1000);
 /// so an idle FT232R answers within about that with status bytes only.
 const POLL: Duration = Duration::from_millis(5);
 
-/// Environment variable holding the security ID, as 20 hex digits.
+/// Environment variable holding the security ID, as hex digits: 20 for the G15 and G23.
 pub const SECURITY_ID_ENV: &str = "PROBE_RS_RL78_SECURITY_ID";
 
 fn usb_err(e: impl fmt::Display) -> Rl78Error {
@@ -260,7 +259,7 @@ pub struct ComProbe<L = Ft232r> {
 
 impl<L: Rl78Uart> ComProbe<L> {
     /// A probe over `link`, unlocking with `security_id`.
-    pub fn new(link: L, security_id: [u8; SECURITY_ID_LEN]) -> Self {
+    pub fn new(link: L, security_id: impl Into<SecurityId>) -> Self {
         Self {
             ocd: UartOcd::new(link, security_id),
         }
@@ -353,21 +352,13 @@ fn is_ft232r(d: &nusb::DeviceInfo) -> bool {
     d.vendor_id() == VID_FTDI && d.product_id() == PID_FT232R
 }
 
-fn security_id() -> Result<[u8; SECURITY_ID_LEN], ProbeCreationError> {
-    let Ok(hex) = std::env::var(SECURITY_ID_ENV) else {
-        // A part that was never given an ID has ten 00H bytes.
-        return Ok([0; SECURITY_ID_LEN]);
-    };
-    let bad = || ProbeCreationError::Other("PROBE_RS_RL78_SECURITY_ID must be 20 hex digits");
-    let hex: String = hex.chars().filter(|c| !c.is_whitespace()).collect();
-    if hex.len() != 2 * SECURITY_ID_LEN {
-        return Err(bad());
+fn security_id() -> Result<SecurityId, ProbeCreationError> {
+    match std::env::var(SECURITY_ID_ENV) {
+        Err(_) => Ok(SecurityId::BLANK),
+        Ok(hex) => SecurityId::parse(&hex).ok_or(ProbeCreationError::Other(
+            "PROBE_RS_RL78_SECURITY_ID must be hex digits",
+        )),
     }
-    let mut id = [0; SECURITY_ID_LEN];
-    for (i, b) in id.iter_mut().enumerate() {
-        *b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).map_err(|_| bad())?;
-    }
-    Ok(id)
 }
 
 impl ProbeFactory for ComProbeFactory {
